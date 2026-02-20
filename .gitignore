@@ -28,7 +28,9 @@ temp_*/
 
 # --- Environment Variables & Secrets ---
 # Auch wenn wir Vault nutzen, falls mal eine lokale .env existiert, wird sie ignoriert
-.env
+
+
+!.env
 .env.*
 *.pem
 *.key
