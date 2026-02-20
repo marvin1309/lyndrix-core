@@ -1,0 +1,25 @@
+{
+  "name": "Lyndrix-Core Dev Environment",
+  "dockerComposeFile": ["../docker-compose.yml"],
+  "service": "lyndrix",
+  "workspaceFolder": "/app",
+  "customizations": {
+    "vscode": {
+      "extensions": [
+        "ms-python.python", // Der Standard für Python
+        "ms-python.vscode-pylance", // Beste Autovervollständigung
+        "ms-python.debugpy", // Für das spätere Debugging
+        "redhat.vscode-yaml", // Wichtig für deine Plugin-YAMLs
+        "esbenp.prettier-vscode", // Sauberer Code
+        "codezombiech.gitignore", // Git-Hilfe
+        "njqdev.vscode-python-typehint", // Hilft bei FastAPI Typen
+        "njpwerner.autodocstring", // Dokumentiert deine Plugins schnell
+        "streetsidesoftware.code-spell-checker", // Rechtschreibprüfung
+        "streetsidesoftware.code-spell-checker-german", // ...auch auf Deutsch
+        "google.geminicodeassist", // Dein KI-Helfer direkt im Container
+        "ms-azuretools.vscode-docker" // Docker-Verwaltung von innen
+      ]
+    }
+  },
+  "remoteUser": "root"
+}

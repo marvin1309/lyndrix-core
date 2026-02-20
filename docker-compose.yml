@@ -1,0 +1,45 @@
+version: "3.8"
+
+services:
+  lyndrix:
+    build: .
+    container_name: lyndrix-core
+    ports:
+      - "8081:8081"
+    environment:
+      - DATABASE_URL=mysql+pymysql://admin:secret@db/lyndrix_db
+    volumes:
+      - ./plugins:/app/plugins
+    depends_on:
+      - db
+      - vault
+
+  db:
+    image: mariadb:10.11
+    container_name: lyndrix-db
+    environment:
+      MARIADB_ROOT_PASSWORD: secret
+      MARIADB_DATABASE: lyndrix_db
+      MARIADB_USER: admin
+      MARIADB_PASSWORD: secret
+    volumes:
+      - db_data:/var/lib/mysql
+
+  vault:
+    image: hashicorp/vault:latest
+    container_name: lyndrix-vault
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    environment:
+      # Startet Vault als echten Server (nicht dev) mit File-Storage und aktivierter UI
+      VAULT_LOCAL_CONFIG: '{"storage": {"file": {"path": "/vault/file"}}, "listener": {"tcp": {"address": "0.0.0.0:8200", "tls_disable": 1}}, "ui": true}'
+      VAULT_API_ADDR: "http://0.0.0.0:8200"
+    volumes:
+      - vault_data:/vault/file
+    command: server
+
+volumes:
+  db_data:
+  vault_data:

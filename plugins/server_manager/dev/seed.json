@@ -1,0 +1,21 @@
+{
+  "Server Node": [
+    {
+      "name": "Web-Node-01",
+      "ipAddress": "192.168.1.10",
+      "node_type": "VM",
+      "environment": "PRODUCTION",
+      "status": "ONLINE",
+      "vendor_id": 1,
+      "chassis_id": 10,
+      "cpu_id": 100,
+      "ram_gb": 64,
+      "os_id": 200,
+      "location_id": 300,
+      "datacenter_id": 400,
+      "room_id": 500,
+      "rack_position": "Rack 12, U4-5",
+      "notes": "Haupt-Webserver"
+    }
+  ]
+}

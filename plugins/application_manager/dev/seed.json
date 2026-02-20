@@ -1,0 +1,18 @@
+{
+  "Application": [
+    {
+      "name": "Nextcloud Workspace",
+      "url": "https://cloud.lyndrix.local",
+      "desc": "Interner Dateispeicher",
+      "linked_servers": [1],
+      "assigned_rules": [1]
+    },
+    {
+      "name": "GitLab CI/CD",
+      "url": "https://git.lyndrix.local",
+      "desc": "Versionskontrolle und Pipelines",
+      "linked_servers": [1],
+      "assigned_rules": []
+    }
+  ]
+}

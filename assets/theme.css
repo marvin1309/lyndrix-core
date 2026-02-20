@@ -1,0 +1,10 @@
+/* assets/theme.css */
+/* Stylische Scrollbars für den Darkmode */
+.dark ::-webkit-scrollbar {
+  width: 10px;
+  background-color: #09090b;
+}
+.dark ::-webkit-scrollbar-thumb {
+  background-color: #27272a;
+  border-radius: 5px;
+}

@@ -1,0 +1,12 @@
+fastapi==0.129.0
+uvicorn[standard]==0.41.0
+nicegui==3.7.1
+sqlalchemy==2.0.46
+pymysql==1.1.2
+python-dotenv==1.2.1
+requests
+pyyaml
+psutil
+sqlalchemy
+GitPython
+hvac
