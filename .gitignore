@@ -44,3 +44,6 @@ Thumbs.db
 *.log
 logs/
 vault_recovery_keys.json
+
+db_data/
+vault_data/

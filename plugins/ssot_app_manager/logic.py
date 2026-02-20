@@ -52,7 +52,6 @@ def setup(app):
             if not os.path.exists(clone_path):
                 print(f"[{PLUGIN_NAME}] 🛑 Repo {repo_name} lokal nicht gefunden. Bitte erst syncen.")
                 return False
-
             # 1. Die neue YAML-Datei formatgetreu schreiben
             service_path = os.path.join(clone_path, 'service.yml')
             with open(service_path, 'w', encoding='utf-8') as f:

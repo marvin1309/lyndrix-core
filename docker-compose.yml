@@ -1,5 +1,3 @@
-version: "3.8"
-
 services:
   lyndrix:
     build: .
@@ -8,11 +6,27 @@ services:
       - "8081:8081"
     environment:
       - DATABASE_URL=mysql+pymysql://admin:secret@db/lyndrix_db
+      - PYTHONUNBUFFERED=1
+      - PYTHONDONTWRITEBYTECODE=1
+    env_file: .env
+
     volumes:
-      - ./plugins:/app/plugins
+      # --- HOT RELOAD MAGIC ---
+      # Mountet dein aktuelles Verzeichnis in den Container
+      - ./:/app
+      # Verhindert, dass dein lokaler .venv Ordner (Windows/Mac)
+      # die installierten Pakete im Linux-Container überschreibt
+      - /app/.venv
+      # Daten-Persistenz lokal im Projektordner
+      - ./db_data:/var/lib/mysql
+      - ./vault_data:/vault/file
+    # Dieser Befehl aktiviert den Watch-Modus von Uvicorn
+    command: uvicorn main:app --host 0.0.0.0 --port 8081 --reload --reload-dir /app
     depends_on:
-      - db
-      - vault
+      db:
+        condition: service_started
+      vault:
+        condition: service_started
 
   db:
     image: mariadb:10.11
@@ -23,23 +37,19 @@ services:
       MARIADB_USER: admin
       MARIADB_PASSWORD: secret
     volumes:
-      - db_data:/var/lib/mysql
+      - ./db_data:/var/lib/mysql
 
   vault:
     image: hashicorp/vault:latest
     container_name: lyndrix-vault
+    hostname: vault
     ports:
       - "8200:8200"
     cap_add:
       - IPC_LOCK
     environment:
-      # Startet Vault als echten Server (nicht dev) mit File-Storage und aktivierter UI
       VAULT_LOCAL_CONFIG: '{"storage": {"file": {"path": "/vault/file"}}, "listener": {"tcp": {"address": "0.0.0.0:8200", "tls_disable": 1}}, "ui": true}'
-      VAULT_API_ADDR: "http://0.0.0.0:8200"
+      VAULT_API_ADDR: "http://vault:8200"
     volumes:
-      - vault_data:/vault/file
+      - ./vault_data:/vault/file
     command: server
-
-volumes:
-  db_data:
-  vault_data:

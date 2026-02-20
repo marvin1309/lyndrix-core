@@ -41,9 +41,16 @@ def mount_ui(app, plugin_name):
         with ui.row().classes('w-full justify-between items-center mb-6'):
             ui.label("GitOps SSOT Editor").classes('text-2xl font-bold dark:text-zinc-100')
 
-        if not config['pat_token']:
-            ui.label('WARNUNG: Kein GitLab Token konfiguriert! Bitte in den Systemeinstellungen hinterlegen.').classes('text-red-500 text-sm font-bold mb-4 block p-4 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800')
+        # --- SICHERER VAULT CHECK ---
+        # Wir schauen im Vault nach, ob der Token existiert
+        vault_token = None
+        try:
+            vault_token = app.state.vault.get_secret('lyndrix/gitlab_pat')
+        except Exception:
+            pass # Vault vielleicht noch nicht verbunden
 
+        if not vault_token:
+            ui.label('WARNUNG: Kein GitLab Token im Vault konfiguriert! Bitte in den Systemeinstellungen hinterlegen.').classes('text-red-500 text-sm font-bold mb-4 block p-4 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800')
         # --- DAS MODALE LOG-POPUP FÜR DEN SYNC ---
         with ui.dialog().props('persistent') as log_dialog:
             with ui.card().classes('w-full max-w-2xl p-6 border border-slate-700 !bg-slate-900 rounded-3xl shadow-2xl'):
@@ -208,11 +215,10 @@ def mount_ui(app, plugin_name):
             update_table()
 
 
-        # --- SYNC LOGIK (ASYNC) ---
         async def run_sync():
             cfg = get_settings()
             
-            # --- NEU: TOKEN AUS DEM VAULT HOLEN ---
+            # 1. Token aus dem Vault holen (schon korrekt bei dir)
             pat_token = None
             try:
                 pat_token = app.state.vault.get_secret('lyndrix/gitlab_pat')
@@ -221,7 +227,7 @@ def mount_ui(app, plugin_name):
                 return
 
             if not pat_token:
-                ui.notify("Kein GitLab Token im Vault gefunden! Bitte in den Einstellungen hinterlegen.", type='warning')
+                ui.notify("Kein GitLab Token im Vault gefunden!", type='warning')
                 return
             
             # (In der Auth-URL Variable unten dann `pat_token` statt `cfg['pat_token']` verwenden!)
@@ -239,9 +245,12 @@ def mount_ui(app, plugin_name):
             found_apps = []
 
             try:
-                headers = {"PRIVATE-TOKEN": cfg['pat_token']}
+                # KORREKTUR 1: API Header muss pat_token nutzen
+                headers = {"PRIVATE-TOKEN": pat_token} 
                 group_encoded = cfg['group_path'].replace('/', '%2F')
                 api_url = f"{cfg['gitlab_url'].rstrip('/')}/api/v4/groups/{group_encoded}/projects?include_subgroups=true&per_page=100"
+                
+                response = await run.io_bound(requests.get, api_url, headers=headers)
                 
                 response = await run.io_bound(requests.get, api_url, headers=headers)
                 if response.status_code != 200:
@@ -256,7 +265,7 @@ def mount_ui(app, plugin_name):
                     http_url = proj['http_url_to_repo']
                     
                     parsed_url = urlparse(http_url)
-                    auth_url = f"{parsed_url.scheme}://oauth2:{cfg['pat_token']}@{parsed_url.netloc}{parsed_url.path}"
+                    auth_url = f"{parsed_url.scheme}://oauth2:{pat_token}@{parsed_url.netloc}{parsed_url.path}"
                     clone_path = os.path.join(LOCAL_CLONE_BASE_DIR, repo_name)
                     
                     def git_ops():

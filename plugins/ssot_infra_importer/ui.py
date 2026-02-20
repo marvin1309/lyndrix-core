@@ -60,15 +60,20 @@ def mount_ui(app, plugin_name):
     @ui.page('/ssot-infra')
     @main_layout('SSOT Infra')
     def ssot_page():
-        # Lade die Settings live aus der DB
         config = get_settings()
 
         with ui.row().classes('w-full justify-between items-center mb-6'):
             ui.label("IaC Infrastructure Importer").classes('text-2xl font-bold dark:text-zinc-100')
 
-        if not config['pat_token']:
-            ui.label('WARNUNG: Kein GitLab Token konfiguriert! Bitte in den Systemeinstellungen hinterlegen.').classes('text-red-500 text-sm font-bold mb-4 block p-4 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800')
+        # --- SICHERER VAULT CHECK ---
+        vault_token = None
+        try:
+            vault_token = app.state.vault.get_secret('lyndrix/gitlab_pat')
+        except Exception:
+            pass
 
+        if not vault_token:
+            ui.label('WARNUNG: Kein GitLab Token im Vault konfiguriert! Bitte in den Systemeinstellungen hinterlegen.').classes('text-red-500 text-sm font-bold mb-4 block p-4 bg-red-50 dark:bg-red-900/20 rounded-xl border border-red-200 dark:border-red-800')
         # --- DAS MODALE LOG-POPUP ---
         # .props('persistent') verhindert, dass man es aus Versehen durch Klick daneben schließt
         with ui.dialog().props('persistent') as log_dialog:
@@ -148,7 +153,8 @@ def mount_ui(app, plugin_name):
 
             try:
                 parsed_url = urlparse(cfg['repo_url'])
-                auth_url = f"{parsed_url.scheme}://oauth2:{cfg['pat_token']}@{parsed_url.netloc}{parsed_url.path}"
+                # KORREKTUR: Nutze pat_token (aus Vault), nicht cfg['pat_token']
+                auth_url = f"{parsed_url.scheme}://oauth2:{pat_token}@{parsed_url.netloc}{parsed_url.path}"
                 
                 def git_ops():
                     if not os.path.exists(LOCAL_CLONE_DIR):

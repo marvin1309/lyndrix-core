@@ -41,7 +41,7 @@ def render_settings_ui(app):
         # 2. Token sicher im Vault speichern (falls einer eingetippt wurde)
         if vault_state["pat_token"]:
             try:
-                app.state.vault.set_secret('lyndrix/gitlab_pat', vault_state["pat_token"])
+                app.state.vault.set_secret('se/lyndrix/gitlab_pat', vault_state["pat_token"])
                 ui.notify('Settings & Vault-Token sicher gespeichert!', type='positive')
             except Exception as e:
                 ui.notify(f'Fehler beim Speichern im Vault: {e}', type='negative')
