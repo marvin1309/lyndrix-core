@@ -11,17 +11,8 @@ services:
     env_file: .env
     volumes:
       - ./plugins:/app/plugins
-    #    volumes:
-    #      # --- HOT RELOAD MAGIC ---
-    #      # Mountet dein aktuelles Verzeichnis in den Container
-    #      - ./:/app
-    #      # Verhindert, dass dein lokaler .venv Ordner (Windows/Mac)
-    #      # die installierten Pakete im Linux-Container überschreibt
-    #      - /app/.venv
-    #      # Daten-Persistenz lokal im Projektordner
-    #      - ./db_data:/var/lib/mysql
-    #      - ./vault_data:/vault/file
-    #      # Dieser Befehl aktiviert den Watch-Modus von Uvicorn
+      - ./:/app
+      - /app/.venv # Verhindert Overwrite der Docker-Packages durch lokales venv
     command: uvicorn main:app --host 0.0.0.0 --port 8081 --reload --reload-dir /app
     depends_on:
       db:
@@ -54,3 +45,8 @@ services:
     volumes:
       - vault_data:/vault/file
     command: server
+
+# DIESER BLOCK HAT GEFEHLT:
+volumes:
+  db_data:
+  vault_data:
