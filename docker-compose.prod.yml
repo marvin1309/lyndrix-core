@@ -1,7 +1,7 @@
 services:
   lyndrix:
     build:
-      context: ./app # <-- GEÄNDERT: Zeigt in den app-Ordner
+      context: ./app # Zeigt auf den Ordner mit dem Dockerfile
     image: ghcr.io/${GITHUB_REPOSITORY}:latest
     container_name: lyndrix-core
     restart: unless-stopped
@@ -9,7 +9,6 @@ services:
       - "80:8081"
     volumes:
       - lyndrix_plugins_prod:/app/plugins
-      # In Prod nutzen wir einen benannten Volume für Security, keinen lokalen Pfad
       - lyndrix_secure_data:/data/security
     environment:
       - DB_USER=admin
@@ -19,12 +18,9 @@ services:
       - VAULT_URL=http://vault:8200
       - LYNDRIX_MASTER_KEY=${LYNDRIX_MASTER_KEY}
       - ENV_TYPE=prod
-      - PYTHONUNBUFFERED=1
     depends_on:
       db:
         condition: service_healthy
-      vault:
-        condition: service_started
 
   db:
     image: mariadb:10.11
@@ -46,10 +42,10 @@ services:
           "-h",
           "localhost",
           "-uadmin",
-          "-psecret",
+          "-p${DB_PASSWORD}",
         ]
-      interval: 5s
-      timeout: 2s
+      interval: 10s
+      timeout: 5s
       retries: 5
 
   vault:

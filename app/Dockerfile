@@ -1,21 +1,33 @@
 FROM python:3.11-slim
 WORKDIR /app
 
-# System-Abhängigkeiten (MariaDB & Git für Plugin-Support)
+# System-Abhängigkeiten inkl. dos2unix gegen Windows-Format-Fehler
 RUN apt-get update && apt-get install -y \
-    git gcc libc-dev libmariadb-dev pkg-config curl \
+    git gcc libc-dev libmariadb-dev pkg-config curl dos2unix \
     && rm -rf /var/lib/apt/lists/*
 
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
+# Kopiere den gesamten Inhalt des app-Ordners
 COPY . .
 
-# Sicherstellen, dass die Pfade existieren (relativ zum WORKDIR /app)
-RUN mkdir -p /opt/lyndrix/plugins_backup /data/security
-# Kopiert alles aus dem lokalen /app/plugins in das Backup-Verzeichnis
-RUN cp -r plugins/. /opt/lyndrix/plugins_backup/ || echo "Keine Plugins zum Sichern"
+# Sicherstellen, dass Verzeichnisse existieren
+RUN mkdir -p /opt/lyndrix/plugins_backup /data/security /app/plugins
 
-# entrypoint muss aus dem app ordner eine ebene höher oder wir kopieren ihn mit
-RUN chmod +x entrypoint.sh
-ENTRYPOINT ["./entrypoint.sh"]
+# Plugins sichern, falls der Ordner existiert und nicht leer ist
+RUN if [ -d "plugins" ] && [ "$(ls -A plugins 2>/dev/null)" ]; then \
+        cp -r plugins/. /opt/lyndrix/plugins_backup/; \
+    else \
+        echo "Keine Plugins zum Sichern gefunden - erstelle leeres Backup."; \
+        mkdir -p /opt/lyndrix/plugins_backup; \
+    fi
+
+# Entrypoint fixen (Zeilenenden & Rechte)
+RUN dos2unix entrypoint.sh && chmod +x entrypoint.sh
+
+EXPOSE 8081
+
+# Fail-safe Entrypoint Aufruf
+ENTRYPOINT ["/bin/bash", "/app/entrypoint.sh"]
+CMD ["python", "main.py"]
