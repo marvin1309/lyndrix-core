@@ -28,13 +28,15 @@ temp_*/
 
 # --- Environment Variables & Secrets ---
 # Auch wenn wir Vault nutzen, falls mal eine lokale .env existiert, wird sie ignoriert
-
-
+.dev
+vault_data/*
+secure_data/vault_keys.enc
+secure_data
 !.env
 .env.*
 *.pem
 *.key
-
+Store
 # --- IDE & OS Files ---
 .vscode/
 .idea/

@@ -1,21 +1,22 @@
 services:
   lyndrix:
     build:
-      context: ./app # Erwartet Dockerfile im app-Ordner
-    container_name: lyndrix-core
+      context: ./app
+      dockerfile: Dockerfile
+    container_name: lyndrix-core-dev
     ports:
       - "8081:8081"
-    restart: always
     volumes:
-      - ./app:/app # Dein lokaler Code-Stand für Hot-Reload
-      - /app/.venv # WICHTIG: Docker-interne Packages schützen
-      #- ./app/plugins:/app/plugins # Custom Plugins (leerer Ordner auf Host)
-      - ./secure_data:/data/security
+      - ./app:/app # Code Mount für Hot-Reload
+      - ./app/plugins:/app/plugins # Plugins direkt editieren
+      - ./.dev/secure_data:/data/security
     environment:
       - DATABASE_URL=mysql+pymysql://admin:secret@db/lyndrix_db
       - PYTHONUNBUFFERED=1
       - LYNDRIX_MASTER_KEY=C2RNVbITSzb60iA1LDowLwBuIXehvDPRzfV6FCfH
-    command: uvicorn main:app --host 0.0.0.0 --port 8081 --reload
+      - ENV_TYPE=dev
+    env_file: ./app/.env
+    command: uvicorn main:app --host 0.0.0.0 --port 8081 --reload --reload-exclude "*.db"
     depends_on:
       db:
         condition: service_healthy
@@ -24,12 +25,10 @@ services:
 
   db:
     image: mariadb:10.11
-    container_name: lyndrix-db
-    environment:
-      MARIADB_ROOT_PASSWORD: secret
-      MARIADB_DATABASE: lyndrix_db
-      MARIADB_USER: admin
-      MARIADB_PASSWORD: secret
+    container_name: lyndrix-db-dev
+    env_file: ./app/.env
+    volumes:
+      - ./.dev/db_data:/var/lib/mysql
     healthcheck:
       test:
         [
@@ -44,24 +43,16 @@ services:
       interval: 5s
       timeout: 2s
       retries: 5
-    volumes:
-      - ./db_data:/var/lib/mysql
 
   vault:
     image: hashicorp/vault:latest
-    container_name: lyndrix-vault
+    container_name: lyndrix-vault-dev
     hostname: vault
-    ports:
-      - "8200:8200"
     cap_add:
       - IPC_LOCK
     environment:
       VAULT_LOCAL_CONFIG: '{"storage": {"file": {"path": "/vault/file"}}, "listener": {"tcp": {"address": "0.0.0.0:8200", "tls_disable": 1}}, "ui": true}'
       VAULT_API_ADDR: "http://vault:8200"
     volumes:
-      - ./vault_data:/vault/file
+      - ./.dev/vault_data:/vault/file
     command: server
-
-volumes:
-  db_data:
-  vault_data:

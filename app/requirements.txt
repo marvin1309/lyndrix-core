@@ -11,3 +11,4 @@ GitPython
 hvac
 argon2-cffi
 pycryptodome
+ldap3

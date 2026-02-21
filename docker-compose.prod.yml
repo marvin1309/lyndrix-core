@@ -1,0 +1,70 @@
+services:
+  lyndrix:
+    build:
+      context: .
+    image: ghcr.io/${GITHUB_REPOSITORY}:latest
+    container_name: lyndrix-core
+    restart: unless-stopped
+    ports:
+      - "80:8081"
+    volumes:
+      - lyndrix_plugins_prod:/app/plugins
+      - lyndrix_secure_data:/data/security
+    environment:
+      - DB_USER=admin
+      - DB_PASSWORD=${DB_PASSWORD}
+      - DB_HOST=db
+      - DB_NAME=lyndrix_db
+      - VAULT_URL=http://vault:8200
+      - LYNDRIX_MASTER_KEY=${LYNDRIX_MASTER_KEY}
+      - ENV_TYPE=prod
+      - PYTHONUNBUFFERED=1
+    depends_on:
+      db:
+        condition: service_healthy
+      vault:
+        condition: service_started
+
+  db:
+    image: mariadb:10.11
+    container_name: lyndrix-db
+    restart: unless-stopped
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD}
+      MARIADB_DATABASE: lyndrix_db
+      MARIADB_USER: admin
+      MARIADB_PASSWORD: ${DB_PASSWORD}
+    volumes:
+      - db_prod_storage:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mariadb-admin",
+          "ping",
+          "-h",
+          "localhost",
+          "-uadmin",
+          "-psecret",
+        ]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  vault:
+    image: hashicorp/vault:latest
+    container_name: lyndrix-vault
+    restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
+    volumes:
+      - vault_prod_storage:/vault/file
+    environment:
+      VAULT_LOCAL_CONFIG: '{"storage": {"file": {"path": "/vault/file"}}, "listener": {"tcp": {"address": "0.0.0.0:8200", "tls_disable": 1}}}'
+    command: server
+
+volumes:
+  db_prod_storage:
+  vault_prod_storage:
+  lyndrix_plugins_prod:
+  lyndrix_secure_data:
