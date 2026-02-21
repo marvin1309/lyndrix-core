@@ -11,15 +11,11 @@ RUN pip install --no-cache-dir -r requirements.txt
 
 COPY . .
 
-# Verzeichnisse für Daten persistenz vorbereiten
-RUN mkdir -p /opt/lyndrix/plugins_backup /data/security /app/plugins /app/core/components
+# Sicherstellen, dass die Pfade existieren (relativ zum WORKDIR /app)
+RUN mkdir -p /opt/lyndrix/plugins_backup /data/security
+# Kopiert alles aus dem lokalen /app/plugins in das Backup-Verzeichnis
+RUN cp -r plugins/. /opt/lyndrix/plugins_backup/ || echo "Keine Plugins zum Sichern"
 
-# Plugins sichern (falls der User später ein leeres Volume mountet)
-RUN cp -r /app/plugins/. /opt/lyndrix/plugins_backup/ || echo "Keine Plugins zum Sichern"
-
-COPY entrypoint.sh /entrypoint.sh
-RUN chmod +x /entrypoint.sh
-
-EXPOSE 8081
-ENTRYPOINT ["/entrypoint.sh"]
-CMD ["python", "main.py"]
+# entrypoint muss aus dem app ordner eine ebene höher oder wir kopieren ihn mit
+RUN chmod +x entrypoint.sh
+ENTRYPOINT ["./entrypoint.sh"]
