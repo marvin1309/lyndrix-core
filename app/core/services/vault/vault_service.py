@@ -33,7 +33,7 @@ class VaultService:
                     is_initialized = self.client.sys.is_initialized()
                 except Exception:
                     bus.emit("system:maintenance_mode", {
-                        "service": "vault", # WICHTIG
+                        "service": "vault",
                         "active": True, 
                         "title": "Sicherheitssystem Offline", 
                         "msg": "Die Verbindung zum Vault-Server wird aufgebaut..."
@@ -44,10 +44,14 @@ class VaultService:
                 # VAULT ONLINE -> Lock für 'vault' entfernen
                 bus.emit("system:maintenance_mode", {"service": "vault", "active": False})
 
+                # In der _connection_loop von VaultService
                 if not is_initialized:
+                    # NEU: Wir signalisieren, dass wir bereit für ein Init sind!
+                    bus.emit("vault:ready_for_init") 
                     await asyncio.sleep(2)
-                    continue 
+                    continue
 
+                # --- Ab hier: Vault ist initialisiert ---
                 if self.client.sys.is_sealed() or not self.client.token:
                     if not self._last_used_key:
                         await asyncio.sleep(2)
@@ -72,7 +76,6 @@ class VaultService:
 
             except Exception as e:
                 log.error(f"❌ Fehler im Vault-Loop: {e}")
-                # Bei Auth-Fehlern Key löschen, um Endlosschleife mit falschem Key zu vermeiden
                 if "Auth fehlgeschlagen" in str(e):
                     self._last_used_key = None 
                 await asyncio.sleep(2)
@@ -88,7 +91,6 @@ class VaultService:
                 log.error(f"❌ Vault-Verbindung abgerissen: {e}")
                 self.is_connected = False
                 
-                # Lock setzen mit ID
                 bus.emit("system:maintenance_mode", {
                     "service": "vault",
                     "active": True, 
@@ -108,8 +110,9 @@ class VaultService:
         try:
             self.initializer.setup_fresh_vault(master_key)
             log.info("✅ Vault Initialisierung erfolgreich.")
+            # WICHTIG: Setze den Key, damit der Loop im nächsten Durchlauf unsealed!
+            self._last_used_key = master_key
             bus.emit("vault:init_success", {})
-            await self.handle_unseal({"key": master_key})
         except Exception as e:
             log.error(f"❌ Vault Initialisierung fehlgeschlagen: {e}")
             bus.emit("vault:error", {"msg": str(e)})
