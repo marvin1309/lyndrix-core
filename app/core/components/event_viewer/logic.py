@@ -9,21 +9,13 @@ PLUGIN_DESCRIPTION = "Zeigt alle internen System-Events in Echtzeit an (Live-Log
 # Ein globaler Speicher für die letzten 100 Events
 event_history = []
 
-def setup(app):
-    # --- DASHBOARD PROVIDER REGISTRIEREN ---
-    def provide_event_metrics():
-        return [
-            {
-                'id': 'ev_total_events',
-                'label': 'Recent System Events',
-                'color': 'text-indigo-500 dark:text-indigo-400',
-                'icon': 'terminal',
-                'get_val': lambda: str(len(event_history))
-            }
-        ]
+def widget_render():
+    with ui.column().classes('w-full'):
+        ui.label('Letzte 5 Events:').classes('text-xs font-bold')
+        for ev in event_history[:5]:
+            ui.label(f"{ev['time']} - {ev['topic']}").classes('text-[10px] font-mono')
 
-    if hasattr(app.state, 'dashboard_providers'):
-        app.state.dashboard_providers.append(provide_event_metrics)
+def setup(app):
 
     # Eigene Kategorie "System" in der Sidebar
     app.state.nav_items.setdefault('System', [])

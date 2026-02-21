@@ -1,30 +1,27 @@
 from nicegui import ui
 import uuid
 
+# Metadaten für den Loader
 PLUGIN_NAME = "Change Manager"
 PLUGIN_ICON = "fact_check"
 PLUGIN_DESCRIPTION = "Globales Approval-System für anstehende Systemänderungen."
 
-# Unsere globale Queue für offene Änderungen
+# Globale Queue
 pending_changes = []
 
-def setup(app):
-    # --- DASHBOARD PROVIDER REGISTRIEREN ---
-    def provide_change_metrics():
-        pending_count = len(pending_changes)
-        return [
-            {
-                'id': 'cm_pending_changes',
-                'label': 'Pending Approvals',
-                # Orange wenn etwas ansteht, sonst neutral grau
-                'color': 'text-orange-500' if pending_count > 0 else 'text-slate-400 dark:text-zinc-600',
-                'icon': 'fact_check',
-                'get_val': lambda: str(pending_count)
-            }
-        ]
+# --- DIESE FUNKTION MUSS GENAU SO HEISSEN ---
+def provide_metrics():
+    """Wird vom plugin_loader automatisch aufgerufen."""
+    count = len(pending_changes)
+    return [{
+        'id': 'cm_pending_changes',
+        'label': 'Pending Approvals',
+        'color': 'text-orange-500' if count > 0 else 'text-slate-400',
+        'icon': 'fact_check',
+        'get_val': lambda: str(len(pending_changes)) # Lambda sorgt für Live-Update
+    }]
 
-    if hasattr(app.state, 'dashboard_providers'):
-        app.state.dashboard_providers.append(provide_change_metrics)
+def setup(app):
 
     # Eigene Kategorie "System" in der Sidebar
     app.state.nav_items.setdefault('System', [])

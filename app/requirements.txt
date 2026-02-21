@@ -7,6 +7,7 @@ python-dotenv==1.2.1
 requests
 pyyaml
 psutil
-sqlalchemy
 GitPython
 hvac
+argon2-cffi
+pycryptodome
