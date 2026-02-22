@@ -22,6 +22,10 @@ class UIStyles:
     # ----------------------------------------------------
     TITLE_H1 = 'text-3xl font-bold tracking-tight text-slate-900 dark:text-white'
     TITLE_H2 = 'text-2xl font-bold tracking-tight text-slate-800 dark:text-zinc-100'
+    TITLE_H3 = 'text-lg font-bold text-slate-800 dark:text-zinc-100' # NEU: Diese Zeile fehlte!
+    TEXT_MUTED = 'text-sm text-slate-500 dark:text-zinc-400'
+    
+    
     TEXT_MUTED = 'text-sm text-slate-500 dark:text-zinc-400'
     LABEL_MINI = 'text-[10px] font-bold uppercase tracking-widest text-slate-400 dark:text-zinc-500'
 
@@ -37,6 +41,15 @@ class UIStyles:
     MENU_CONTAINER = 'lyndrix-menu shadow-2xl rounded-2xl overflow-hidden border border-slate-200 dark:border-zinc-800'
     MENU_ITEM = 'text-slate-700 dark:text-zinc-200 hover:bg-slate-100 dark:hover:bg-zinc-800 transition-colors px-4 py-2'
     MENU_ITEM_DANGER = 'text-red-500 hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors px-4 py-2'
+
+    # ----------------------------------------------------
+    # 6. SIDEBAR & NAVIGATION (NEU / ANGEPASST)
+    # ----------------------------------------------------
+    SIDEBAR = '!bg-slate-50 dark:!bg-zinc-950 border-r border-slate-200 dark:border-zinc-800 !p-4 flex flex-col transition-colors'
+    NAV_CATEGORY = 'px-3 mb-2 mt-4 text-[11px] font-bold text-slate-400 dark:text-zinc-500 uppercase tracking-widest'
+    NAV_LINK_BASE = 'w-full flex items-center px-3 py-2 no-underline transition-all'
+    NAV_LINK_ACTIVE = 'bg-blue-50 dark:bg-blue-900/10 text-primary border-l-2 border-primary rounded-r-xl'
+    NAV_LINK_INACTIVE = 'text-slate-500 dark:text-zinc-400 hover:bg-slate-200 dark:hover:bg-zinc-800 rounded-xl'
 
 
 def apply_theme():
