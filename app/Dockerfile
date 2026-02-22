@@ -9,7 +9,7 @@ RUN apt-get update && apt-get install -y \
 COPY requirements.txt .
 RUN pip install --no-cache-dir -r requirements.txt
 
-# Kopiere den gesamten Inhalt des app-Ordners
+# Kopiere den gesamten Inhalt des aktuellen Contexts (app Ordner)
 COPY . .
 
 # Sicherstellen, dass Verzeichnisse existieren
@@ -30,4 +30,4 @@ EXPOSE 8081
 
 # Fail-safe Entrypoint Aufruf
 ENTRYPOINT ["/bin/bash", "/app/entrypoint.sh"]
-CMD ["python", "main.py"]
+CMD ["uvicorn", "main:app", "--host", "0.0.0.0", "--port", "8081"]

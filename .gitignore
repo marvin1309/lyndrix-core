@@ -51,3 +51,5 @@ vault_recovery_keys.json
 
 db_data/
 vault_data/
+app/plugins/*
+app/plugins

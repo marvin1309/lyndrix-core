@@ -63,7 +63,7 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v5
         with:
-          context: ./app # Kontext ist der Unterordner /app
+          context: ./app
           file: ./app/Dockerfile # Pfad zum Dockerfile innerhalb des Kontextes
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
