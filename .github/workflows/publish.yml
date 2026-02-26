@@ -28,25 +28,24 @@ jobs:
       # ==========================================
       - name: Run Smoketest
         run: |
-          # Dummy Env erstellen
-          echo "DB_PASSWORD=testpass" > .env
-          echo "DB_ROOT_PASSWORD=testroot" >> .env
-          echo "LYNDRIX_MASTER_KEY=12345678901234567890123456789012" >> .env
+          echo "DB_PASSWORD=testpass" > docker/.env.dev
+          echo "DB_ROOT_PASSWORD=testroot" >> docker/.env.dev
+          echo "LYNDRIX_MASTER_KEY=12345678901234567890123456789012" >> docker/.env.dev
 
-          # Build und Start via lokaler docker-compose.yml im Root
-          docker compose up -d --build
+          # Auch hier: Pfad zur dev-Compose
+          docker compose -f docker/docker-compose.dev.yml up -d --build
 
-          echo "Warte auf System-Boot (Healthchecks)..."
+          echo "Warte auf System-Boot..."
           sleep 30
 
           if curl --retry 5 --retry-delay 5 -f http://localhost:8081/; then
             echo "✅ TEST BESTANDEN!"
           else
             echo "❌ TEST FEHLGESCHLAGEN! Logs:"
-            docker compose logs lyndrix
+            docker compose -f docker/docker-compose.dev.yml logs lyndrix
             exit 1
           fi
-          docker compose down -v
+          docker compose -f docker/docker-compose.dev.yml down -v
 
       # ==========================================
       # 2. PUBLISH
@@ -63,8 +62,8 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v5
         with:
-          context: ./app
-          file: ./app/Dockerfile # Pfad zum Dockerfile innerhalb des Kontextes
+          context: . # Kontext ist Root, damit app/ und docker/ sichtbar sind
+          file: ./docker/Dockerfile # Pfad zum Dockerfile
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
