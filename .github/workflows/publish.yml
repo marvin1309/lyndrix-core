@@ -28,32 +28,33 @@ jobs:
       # ==========================================
       - name: Run Smoketest
         run: |
-          # Wir erstellen die Datei direkt im docker-Ordner UND nennen sie .env.dev,
-          # da deine docker-compose.dev.yml genau diese Datei erwartet.
-          echo "DB_PASSWORD=testpass" > docker/.env.dev
-          echo "DB_ROOT_PASSWORD=testroot" >> docker/.env.dev
-          echo "DB_USER=admin" >> docker/.env.dev
-          echo "DB_NAME=lyndrix_db" >> docker/.env.dev
+          # Alle benötigten Variablen in die Datei im docker-Ordner schreiben
+          echo "ENV_TYPE=dev" > docker/.env.dev
           echo "DB_HOST=db" >> docker/.env.dev
-          echo "VAULT_URL=http://vault:8200" >> docker/.env.dev
+          echo "DB_NAME=lyndrix_db" >> docker/.env.dev
+          echo "DB_USER=admin" >> docker/.env.dev
+          echo "DB_PASSWORD=testpass" >> docker/.env.dev
+          echo "DB_ROOT_PASSWORD=testroot" >> docker/.env.dev
           echo "STORAGE_SECRET=test_secret_12345" >> docker/.env.dev
           echo "LYNDRIX_MASTER_KEY=12345678901234567890123456789012" >> docker/.env.dev
+          echo "VAULT_URL=http://vault:8200" >> docker/.env.dev
+          echo "VAULT_SKIP_VERIFY=true" >> docker/.env.dev
 
-          # Starte mit explizitem Pfad zur Dev-Compose
+          # Starten der Container
           docker compose -f docker/docker-compose.dev.yml up -d --build
 
           echo "Warte auf System-Boot (30s)..."
           sleep 30
 
-          # Prüfe, ob die Container noch laufen oder gecrasht sind
+          # Debug: Zeige laufende Container
           docker ps
 
           if curl --retry 5 --retry-delay 5 -f http://localhost:8081/; then
             echo "✅ TEST BESTANDEN!"
           else
-            echo "❌ TEST FEHLGESCHLAGEN! Zeige Logs von Lyndrix und DB:"
-            docker compose -f docker/docker-compose.dev.yml logs lyndrix
+            echo "❌ TEST FEHLGESCHLAGEN! Zeige Logs:"
             docker compose -f docker/docker-compose.dev.yml logs db
+            docker compose -f docker/docker-compose.dev.yml logs lyndrix
             exit 1
           fi
 

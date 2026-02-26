@@ -24,6 +24,11 @@ services:
     image: mariadb:10.11
     container_name: lyndrix-db-dev
     env_file: .env.dev
+    environment:
+      - MARIADB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+      - MARIADB_DATABASE=${DB_NAME}
+      - MARIADB_USER=${DB_USER}
+      - MARIADB_PASSWORD=${DB_PASSWORD}
     volumes:
       - ../.dev/db_data:/var/lib/mysql
     healthcheck:
