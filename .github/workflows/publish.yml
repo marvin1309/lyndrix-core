@@ -24,18 +24,13 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       # ==========================================
-      # 1. SMOKETEST (FIXED PATHS)
+      # 1. SMOKETEST (CLOUD-OPTIMIERT)
       # ==========================================
       - name: Run Smoketest
         run: |
-          # Wir schreiben die Datei direkt in den docker/ Ordner
-          # Wir nutzen MARIADB_ Namen, damit der Container direkt startet
-          cat <<EOF > docker/.env.dev
-          ENV_TYPE=dev
-          MARIADB_ROOT_PASSWORD=testroot
-          MARIADB_DATABASE=lyndrix_db
-          MARIADB_USER=admin
-          MARIADB_PASSWORD=testpass
+          # Wir erstellen die .env.prod direkt im docker-Ordner
+          cat <<EOF > docker/.env.prod
+          ENV_TYPE=prod
           DB_HOST=db
           DB_NAME=lyndrix_db
           DB_USER=admin
@@ -44,25 +39,33 @@ jobs:
           STORAGE_SECRET=test_secret_12345
           VAULT_URL=http://vault:8200
           VAULT_SKIP_VERIFY=true
-          LYNDRIX_MASTER_KEY=12345678901234567890123456789012
+          # Für MariaDB Container-Logik
+          MARIADB_ROOT_PASSWORD=testroot
+          MARIADB_DATABASE=lyndrix_db
+          MARIADB_USER=admin
+          MARIADB_PASSWORD=testpass
           EOF
 
-          # Wir sagen Docker: Nimm die Datei aus /docker und das Compose-File aus /docker
-          docker compose -f docker/docker-compose.dev.yml --env-file docker/.env.dev up -d --build
+          # Wir testen das PROD-Setup (keine Mounts, echtes Image)
+          # --env-file sorgt dafür, dass Docker die Variablen auch im YAML findet
+          docker compose -f docker/docker-compose.prod.yml --env-file docker/.env.prod up -d --build
 
           echo "Warte auf System-Boot (30s)..."
           sleep 30
 
-          # Prüfen ob Lyndrix antwortet
+          # Debug: Status anzeigen
+          docker ps -a
+
           if curl --retry 5 --retry-delay 5 -f http://localhost:8081/; then
-            echo "✅ TEST BESTANDEN!"
+            echo "✅ SMOKETEST BESTANDEN!"
           else
-            echo "❌ TEST FEHLGESCHLAGEN! Logs:"
-            docker compose -f docker/docker-compose.dev.yml logs db
-            docker compose -f docker/docker-compose.dev.yml logs lyndrix
+            echo "❌ SMOKETEST FEHLGESCHLAGEN! Logs:"
+            docker compose -f docker/docker-compose.prod.yml logs db
+            docker compose -f docker/docker-compose.prod.yml logs lyndrix
             exit 1
           fi
-          docker compose -f docker/docker-compose.dev.yml down -v
+
+          docker compose -f docker/docker-compose.prod.yml down -v
 
       # ==========================================
       # 2. PUBLISH (FIXED CONTEXT)

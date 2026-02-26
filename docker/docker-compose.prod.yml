@@ -21,18 +21,19 @@ services:
     container_name: lyndrix-db
     restart: unless-stopped
     env_file: .env.prod
+    # Mapping hinzufügen, damit MariaDB die Variablen aus der env_file nutzt
+    environment:
+      - MARIADB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
+      - MARIADB_DATABASE=${DB_NAME}
+      - MARIADB_USER=${DB_USER}
+      - MARIADB_PASSWORD=${DB_PASSWORD}
     volumes:
       - db_prod_storage:/var/lib/mysql
     healthcheck:
       test:
         [
-          "CMD",
-          "mariadb-admin",
-          "ping",
-          "-h",
-          "localhost",
-          "-uadmin",
-          "-p${DB_PASSWORD}",
+          "CMD-SHELL",
+          "mariadb-admin ping -h localhost -u${DB_USER} -p${DB_PASSWORD}",
         ]
       interval: 10s
       timeout: 5s
