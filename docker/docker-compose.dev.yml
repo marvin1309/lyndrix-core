@@ -25,22 +25,30 @@ services:
   db:
     image: mariadb:10.11
     container_name: lyndrix-db-dev
-    env_file:
-      - .env.dev
+    # Wir laden die env_file, aber überschreiben die kritischen Werte
+    # im environment-Block für maximale Sicherheit
+    env_file: .env.dev
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-secret}
+      MARIADB_DATABASE: ${DB_NAME:-lyndrix_db}
+      MARIADB_USER: ${DB_USER:-admin}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-secret}
     volumes:
       - ../.dev/db_data:/var/lib/mysql
     healthcheck:
-      # FIX: Wir nutzen MARIADB_ Variablen, die direkt aus der .env.dev geladen werden
       test:
         [
-          "CMD-SHELL",
-          "mariadb-admin ping -h localhost -u$${MARIADB_USER} -p$${MARIADB_PASSWORD}",
+          "CMD",
+          "mariadb-admin",
+          "ping",
+          "-h",
+          "localhost",
+          "-uadmin",
+          "-p${DB_PASSWORD:-secret}",
         ]
       interval: 5s
       timeout: 2s
       retries: 5
-
-  # ... vault und docs bleiben gleich
 
   vault:
     image: hashicorp/vault:latest
