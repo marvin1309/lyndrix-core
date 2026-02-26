@@ -22,7 +22,7 @@ Möchtest du Lyndrix Core lokal testen oder eigene Plugins entwickeln? Das geht 
 **1. Repository klonen:**
 
 ```bash
-git clone [https://github.com/DEIN_USERNAME/lyndrix-core.git](https://github.com/DEIN_USERNAME/lyndrix-core.git)
+git clone https://github.com/marvin1309/lyndrix-core.git
 cd lyndrix-core
 ```
 
@@ -51,15 +51,3 @@ Hier findest du in Zukunft alle weiterführenden Anleitungen (Work in Progress):
 ---
 
 _Gebaut mit ❤️ und Python._
-
-```
-
-### Was passiert, wenn du das pushst?
-1. GitHub Pages (Jekyll) erkennt die `docs/index.md`.
-2. Es wandelt das Markdown automatisch in eine saubere HTML-Seite um (mit dem Standard GitHub-Theme).
-3. Dein Build-Fehler verschwindet und du erreichst unter deiner `.github.io` URL deine neue Startseite!
-
-Sollen wir danach mit der **`config.py`** weitermachen, um den Code genauso sauber zu kriegen wie diese Doku?
-
-
-```
