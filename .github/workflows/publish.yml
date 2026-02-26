@@ -5,30 +5,9 @@ on:
     branches: ["main"]
     tags: ["v*.*.*"]
 
-env:
-  REGISTRY: ghcr.io
-  IMAGE_NAME: ${{ github.repository }}
-
-jobs:
-  build-test-publish:
-    runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
-    steps:
-      - name: Checkout repository
-        uses: actions/checkout@v4
-
-      - name: Set up Docker Buildx
-        uses: docker/setup-buildx-action@v3
-
-name: Build, Test and Publish
-
-on:
-  push:
-    branches: ["main"]
-    tags: ["v*.*.*"]
+permissions:
+  contents: read
+  packages: write
 
 env:
   REGISTRY: ghcr.io
@@ -37,10 +16,6 @@ env:
 jobs:
   build-test-publish:
     runs-on: ubuntu-latest
-    permissions:
-      contents: read
-      packages: write
-
     steps:
       - name: Checkout repository
         uses: actions/checkout@v4
@@ -49,44 +24,48 @@ jobs:
         uses: docker/setup-buildx-action@v3
 
       # ==========================================
-      # 1. SMOKETEST
+      # 1. SMOKETEST (FIXED PATHS)
       # ==========================================
       - name: Run Smoketest
         run: |
-          # Alle benötigten Variablen in die Datei im docker-Ordner schreiben
-          echo "ENV_TYPE=dev" > docker/.env.dev
-          echo "DB_HOST=db" >> docker/.env.dev
-          echo "DB_NAME=lyndrix_db" >> docker/.env.dev
-          echo "DB_USER=admin" >> docker/.env.dev
-          echo "DB_PASSWORD=testpass" >> docker/.env.dev
-          echo "DB_ROOT_PASSWORD=testroot" >> docker/.env.dev
-          echo "STORAGE_SECRET=test_secret_12345" >> docker/.env.dev
-          echo "LYNDRIX_MASTER_KEY=12345678901234567890123456789012" >> docker/.env.dev
-          echo "VAULT_URL=http://vault:8200" >> docker/.env.dev
-          echo "VAULT_SKIP_VERIFY=true" >> docker/.env.dev
+          # Wir schreiben die Datei direkt in den docker/ Ordner
+          # Wir nutzen MARIADB_ Namen, damit der Container direkt startet
+          cat <<EOF > docker/.env.dev
+          ENV_TYPE=dev
+          MARIADB_ROOT_PASSWORD=testroot
+          MARIADB_DATABASE=lyndrix_db
+          MARIADB_USER=admin
+          MARIADB_PASSWORD=testpass
+          DB_HOST=db
+          DB_NAME=lyndrix_db
+          DB_USER=admin
+          DB_PASSWORD=testpass
+          DB_ROOT_PASSWORD=testroot
+          STORAGE_SECRET=test_secret_12345
+          VAULT_URL=http://vault:8200
+          VAULT_SKIP_VERIFY=true
+          LYNDRIX_MASTER_KEY=12345678901234567890123456789012
+          EOF
 
-          # Starten der Container
-          docker compose -f docker/docker-compose.dev.yml up -d --build
+          # Wir sagen Docker: Nimm die Datei aus /docker und das Compose-File aus /docker
+          docker compose -f docker/docker-compose.dev.yml --env-file docker/.env.dev up -d --build
 
           echo "Warte auf System-Boot (30s)..."
           sleep 30
 
-          # Debug: Zeige laufende Container
-          docker ps
-
+          # Prüfen ob Lyndrix antwortet
           if curl --retry 5 --retry-delay 5 -f http://localhost:8081/; then
             echo "✅ TEST BESTANDEN!"
           else
-            echo "❌ TEST FEHLGESCHLAGEN! Zeige Logs:"
+            echo "❌ TEST FEHLGESCHLAGEN! Logs:"
             docker compose -f docker/docker-compose.dev.yml logs db
             docker compose -f docker/docker-compose.dev.yml logs lyndrix
             exit 1
           fi
-
           docker compose -f docker/docker-compose.dev.yml down -v
 
       # ==========================================
-      # 2. PUBLISH
+      # 2. PUBLISH (FIXED CONTEXT)
       # ==========================================
       - name: Log in to Registry
         if: github.event_name != 'pull_request'
@@ -100,31 +79,8 @@ jobs:
         if: github.event_name != 'pull_request'
         uses: docker/build-push-action@v5
         with:
-          context: . # Kontext ist Root, damit app/ und docker/ sichtbar sind
-          file: ./docker/Dockerfile # Pfad zum Dockerfile
-          push: true
-          tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
-          cache-from: type=gha
-          cache-to: type=gha,mode=max
-
-
-      # ==========================================
-      # 2. PUBLISH
-      # ==========================================
-      - name: Log in to Registry
-        if: github.event_name != 'pull_request'
-        uses: docker/login-action@v3
-        with:
-          registry: ${{ env.REGISTRY }}
-          username: ${{ github.actor }}
-          password: ${{ secrets.GITHUB_TOKEN }}
-
-      - name: Build and push
-        if: github.event_name != 'pull_request'
-        uses: docker/build-push-action@v5
-        with:
-          context: . # Kontext ist Root, damit app/ und docker/ sichtbar sind
-          file: ./docker/Dockerfile # Pfad zum Dockerfile
+          context: . # WICHTIG: Kontext bleibt Root
+          file: ./docker/Dockerfile # Dockerfile liegt in /docker
           push: true
           tags: ${{ env.REGISTRY }}/${{ env.IMAGE_NAME }}:latest
           cache-from: type=gha
