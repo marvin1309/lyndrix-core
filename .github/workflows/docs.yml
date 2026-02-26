@@ -1,0 +1,51 @@
+name: Build and Deploy Documentation
+
+on:
+  push:
+    branches:
+      - main
+    paths:
+      - "docs/**" # Trigger nur, wenn sich in der Doku was ändert
+      - "mkdocs.yml"
+  workflow_dispatch: # Erlaubt manuelles Starten über die GitHub UI
+
+permissions:
+  contents: read
+  pages: write
+  id-token: write
+
+# Stellt sicher, dass immer nur ein Deploy gleichzeitig läuft
+concurrency:
+  group: "pages"
+  cancel-in-progress: true
+
+jobs:
+  build-and-deploy:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Zensical
+        run: pip install zensical
+
+      - name: Build Docs with Zensical
+        run: zensical build
+
+      - name: Setup Pages
+        uses: actions/configure-pages@v4
+
+      - name: Upload artifact
+        uses: actions/upload-pages-artifact@v3
+        with:
+          path: "./site" # Zensical legt das fertige HTML standardmäßig im Ordner /site ab
+
+      - name: Deploy to GitHub Pages
+        id: deployment
+        uses: actions/deploy-pages@v4

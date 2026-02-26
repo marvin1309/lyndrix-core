@@ -1,0 +1,27 @@
+site_name: Lyndrix Core
+site_description: Internal Developer Platform Documentation
+theme:
+  name: material
+  palette:
+    # Dunkles Theme als Standard
+    - media: "(prefers-color-scheme: dark)"
+      scheme: slate
+      primary: indigo
+      accent: emerald
+      toggle:
+        icon: material/weather-sunny
+        name: Switch to light mode
+    # Helles Theme
+    - media: "(prefers-color-scheme: light)"
+      scheme: default
+      primary: indigo
+      accent: emerald
+      toggle:
+        icon: material/weather-night
+        name: Switch to dark mode
+
+nav:
+  - Home: index.md
+  - Installation: deployment.md
+  - Plugin Development: plugins.md
+  - Security: security.md

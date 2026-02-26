@@ -26,14 +26,11 @@ git clone [https://github.com/DEIN_USERNAME/lyndrix-core.git](https://github.com
 cd lyndrix-core
 ```
 
-````
-
 **2. Docker Compose starten:**
 Wir haben eine sichere `.env.dev` vorbereitet, damit du sofort loslegen kannst.
 
 ```bash
 docker compose -f docker/docker-compose.dev.yml up -d --build
-
 ```
 
 **3. UI aufrufen:**
@@ -65,4 +62,4 @@ _Gebaut mit ❤️ und Python._
 Sollen wir danach mit der **`config.py`** weitermachen, um den Code genauso sauber zu kriegen wie diese Doku?
 
 
-````
+```
