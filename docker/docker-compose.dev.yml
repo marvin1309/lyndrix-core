@@ -1,19 +1,21 @@
 services:
   lyndrix:
     build:
-      context: .. # Zeigt ins Root-Verzeichnis deines Repositories
+      context: ..
       dockerfile: docker/Dockerfile
     container_name: lyndrix-core-dev
     ports:
       - "8081:8081"
     volumes:
-      # Wir mounten den /app Ordner aus dem Root für Hot-Reload
       - ../app:/app
       - ../.dev/secure_data:/data/security
-    env_file: .env.dev # Nutzt die Dev-Datei
+      # FIX: Wir mounten das Skript explizit rein, damit es trotz Volume-Mount da ist!
+      - ./entrypoint.sh:/app/entrypoint.sh
+    env_file:
+      - .env.dev
     environment:
       - PYTHONUNBUFFERED=1
-    command: uvicorn main:app --host 0.0.0.0 --port 8081 --reload --reload-exclude "*.db"
+    command: uvicorn main:app --host 0.0.0.0 --port 8081 --reload
     depends_on:
       db:
         condition: service_healthy
@@ -23,29 +25,22 @@ services:
   db:
     image: mariadb:10.11
     container_name: lyndrix-db-dev
-    env_file: .env.dev
-    environment:
-      - MARIADB_ROOT_PASSWORD=${DB_ROOT_PASSWORD}
-      - MARIADB_DATABASE=${DB_NAME}
-      - MARIADB_USER=${DB_USER}
-      - MARIADB_PASSWORD=${DB_PASSWORD}
+    env_file:
+      - .env.dev
     volumes:
       - ../.dev/db_data:/var/lib/mysql
     healthcheck:
-      # Wir nutzen die Variable aus der .env für den Check!
+      # FIX: Wir nutzen MARIADB_ Variablen, die direkt aus der .env.dev geladen werden
       test:
         [
-          "CMD",
-          "mariadb-admin",
-          "ping",
-          "-h",
-          "localhost",
-          "-uadmin",
-          "-p${DB_PASSWORD}",
+          "CMD-SHELL",
+          "mariadb-admin ping -h localhost -u$${MARIADB_USER} -p$${MARIADB_PASSWORD}",
         ]
       interval: 5s
       timeout: 2s
       retries: 5
+
+  # ... vault und docs bleiben gleich
 
   vault:
     image: hashicorp/vault:latest
