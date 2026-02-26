@@ -1,0 +1,56 @@
+name: Developer PR Checks
+
+on:
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  lint-and-test:
+    name: Code Quality & Smoketest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip" # Beschleunigt den CI Run
+
+      # Installiert Formatierer und Linter aus der dev-requirements
+      - name: Install Dev Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff black
+
+      - name: Check Code Formatting (Black)
+        run: black --check app/
+        continue-on-error: true # Bricht den Run vorerst nicht ab, nur Warnung
+
+      - name: Lint Code (Ruff)
+        run: ruff check app/
+        continue-on-error: true # Bricht den Run vorerst nicht ab
+
+      # Wir jagen auch den PR durch den Smoketest, um sicherzugehen, dass
+      # der neue Code den Container nicht direkt beim Start crashen lässt!
+      - name: Run Smoketest
+        run: |
+          echo "DB_PASSWORD=testpass" > .env
+          echo "DB_ROOT_PASSWORD=testroot" >> .env
+          echo "LYNDRIX_MASTER_KEY=12345678901234567890123456789012" >> .env
+
+          docker compose -f docker/docker-compose.yml up -d --build
+
+          echo "Warte auf System-Boot..."
+          sleep 30
+
+          if curl --retry 5 --retry-delay 5 -f http://localhost:8081/; then
+            echo "✅ PR-TEST BESTANDEN!"
+          else
+            echo "❌ PR-TEST FEHLGESCHLAGEN! Logs:"
+            docker compose -f docker/docker-compose.yml logs lyndrix
+            exit 1
+          fi
+          docker compose -f docker/docker-compose.yml down -v

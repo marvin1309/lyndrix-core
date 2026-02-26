@@ -1,21 +1,18 @@
 services:
   lyndrix:
     build:
-      context: ./app
-      dockerfile: Dockerfile
+      context: .. # Zeigt ins Root-Verzeichnis deines Repositories
+      dockerfile: docker/Dockerfile
     container_name: lyndrix-core-dev
     ports:
       - "8081:8081"
     volumes:
-      - ./app:/app # Code Mount für Hot-Reload
-      #      - ./app/plugins:/app/plugins # Plugins direkt editieren
-      - ./.dev/secure_data:/data/security
+      # Wir mounten den /app Ordner aus dem Root für Hot-Reload
+      - ../app:/app
+      - ../.dev/secure_data:/data/security
+    env_file: .env.dev # Nutzt die Dev-Datei
     environment:
-      - DATABASE_URL=mysql+pymysql://admin:secret@db/lyndrix_db
       - PYTHONUNBUFFERED=1
-      - LYNDRIX_MASTER_KEY=C2RNVbITSzb60iA1LDowLwBuIXehvDPRzfV6FCfH
-      - ENV_TYPE=dev
-    env_file: ./app/.env
     command: uvicorn main:app --host 0.0.0.0 --port 8081 --reload --reload-exclude "*.db"
     depends_on:
       db:
@@ -26,10 +23,11 @@ services:
   db:
     image: mariadb:10.11
     container_name: lyndrix-db-dev
-    env_file: ./app/.env
+    env_file: .env.dev
     volumes:
-      - ./.dev/db_data:/var/lib/mysql
+      - ../.dev/db_data:/var/lib/mysql
     healthcheck:
+      # Wir nutzen die Variable aus der .env für den Check!
       test:
         [
           "CMD",
@@ -38,7 +36,7 @@ services:
           "-h",
           "localhost",
           "-uadmin",
-          "-psecret",
+          "-p${DB_PASSWORD}",
         ]
       interval: 5s
       timeout: 2s
@@ -54,5 +52,5 @@ services:
       VAULT_LOCAL_CONFIG: '{"storage": {"file": {"path": "/vault/file"}}, "listener": {"tcp": {"address": "0.0.0.0:8200", "tls_disable": 1}}, "ui": true}'
       VAULT_API_ADDR: "http://vault:8200"
     volumes:
-      - ./.dev/vault_data:/vault/file
+      - ../.dev/vault_data:/vault/file
     command: server
