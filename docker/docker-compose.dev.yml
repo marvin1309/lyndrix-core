@@ -46,6 +46,8 @@ services:
     image: hashicorp/vault:latest
     container_name: lyndrix-vault-dev
     hostname: vault
+    ports:
+      - "8200:8200"
     cap_add:
       - IPC_LOCK
     environment:
@@ -54,3 +56,14 @@ services:
     volumes:
       - ../.dev/vault_data:/vault/file
     command: server
+  docs:
+    image: python:3.11-slim
+    container_name: lyndrix-docs-dev
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mountet das gesamte Repo-Root (damit er mkdocs.yml und docs/ findet)
+      - ../:/workspace
+    working_dir: /workspace
+    # Installiert Zensical on-the-fly und bindet den Server an 0.0.0.0 (für Docker Port-Forwarding)
+    command: bash -c "pip install zensical && zensical serve -a 0.0.0.0:8000"

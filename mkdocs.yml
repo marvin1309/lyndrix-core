@@ -1,5 +1,6 @@
 site_name: Lyndrix Core
 site_description: Internal Developer Platform Documentation
+site_dir: .cache/site
 theme:
   name: material
   palette:

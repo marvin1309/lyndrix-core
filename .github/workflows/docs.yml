@@ -44,7 +44,8 @@ jobs:
       - name: Upload artifact
         uses: actions/upload-pages-artifact@v3
         with:
-          path: "./site" # Zensical legt das fertige HTML standardmäßig im Ordner /site ab
+          # Hier den Pfad an deine mkdocs.yml Anpassung angleichen!
+          path: "./.cache/site"
 
       - name: Deploy to GitHub Pages
         id: deployment
