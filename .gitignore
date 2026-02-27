@@ -53,3 +53,4 @@ db_data/
 vault_data/
 app/plugins/*
 app/plugins
+.cache

@@ -1,0 +1,77 @@
+services:
+  lyndrix:
+    build:
+      context: ..
+      dockerfile: docker/Dockerfile
+    container_name: lyndrix-core-dev
+    ports:
+      - "8081:8081"
+    volumes:
+      - ../app:/app
+      - ../.dev/secure_data:/data/security
+      # FIX: Wir mounten das Skript explizit rein, damit es trotz Volume-Mount da ist!
+      - ./entrypoint.sh:/app/entrypoint.sh
+    env_file:
+      - .env.dev
+    environment:
+      - PYTHONUNBUFFERED=1
+    command: uvicorn main:app --host 0.0.0.0 --port 8081 --reload
+    depends_on:
+      db:
+        condition: service_healthy
+      vault:
+        condition: service_started
+
+  db:
+    image: mariadb:10.11
+    container_name: lyndrix-db-dev
+    # Wir laden die env_file, aber überschreiben die kritischen Werte
+    # im environment-Block für maximale Sicherheit
+    env_file: .env.dev
+    environment:
+      MARIADB_ROOT_PASSWORD: ${DB_ROOT_PASSWORD:-secret}
+      MARIADB_DATABASE: ${DB_NAME:-lyndrix_db}
+      MARIADB_USER: ${DB_USER:-admin}
+      MARIADB_PASSWORD: ${DB_PASSWORD:-secret}
+    volumes:
+      - ../.dev/db_data:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mariadb-admin",
+          "ping",
+          "-h",
+          "localhost",
+          "-uadmin",
+          "-p${DB_PASSWORD:-secret}",
+        ]
+      interval: 5s
+      timeout: 2s
+      retries: 5
+
+  vault:
+    image: hashicorp/vault:latest
+    container_name: lyndrix-vault-dev
+    hostname: vault
+    ports:
+      - "8200:8200"
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_LOCAL_CONFIG: '{"storage": {"file": {"path": "/vault/file"}}, "listener": {"tcp": {"address": "0.0.0.0:8200", "tls_disable": 1}}, "ui": true}'
+      VAULT_API_ADDR: "http://vault:8200"
+    volumes:
+      - ../.dev/vault_data:/vault/file
+    command: server
+  docs:
+    image: python:3.11-slim
+    container_name: lyndrix-docs-dev
+    ports:
+      - "8000:8000"
+    volumes:
+      # Mountet das gesamte Repo-Root (damit er mkdocs.yml und docs/ findet)
+      - ../:/workspace
+    working_dir: /workspace
+    # Installiert Zensical on-the-fly und bindet den Server an 0.0.0.0 (für Docker Port-Forwarding)
+    command: bash -c "pip install zensical && zensical serve -a 0.0.0.0:8000"

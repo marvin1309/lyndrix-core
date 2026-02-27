@@ -1,0 +1,59 @@
+name: Developer PR Checks
+
+on:
+  pull_request:
+    branches: ["main"]
+
+jobs:
+  lint-and-test:
+    name: Code Quality & Smoketest
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Setup Python
+        uses: actions/setup-python@v5
+        with:
+          python-version: "3.11"
+          cache: "pip"
+
+      - name: Install Dev Dependencies
+        run: |
+          python -m pip install --upgrade pip
+          pip install ruff black
+
+      - name: Check Code Formatting (Black)
+        run: black --check app/
+        continue-on-error: true
+
+      - name: Lint Code (Ruff)
+        run: ruff check app/
+        continue-on-error: true
+
+      - name: Run Smoketest
+        run: |
+          # WICHTIG: .env im docker-Ordner erstellen, da die Compose-Datei dort liegt
+          echo "DB_PASSWORD=testpass" > docker/.env.dev
+          echo "DB_ROOT_PASSWORD=testroot" >> docker/.env.dev
+          echo "LYNDRIX_MASTER_KEY=12345678901234567890123456789012" >> docker/.env.dev
+          echo "DB_NAME=lyndrix_db" >> docker/.env.dev
+          echo "DB_USER=admin" >> docker/.env.dev
+          echo "DB_HOST=lyndrix-db-dev" >> docker/.env.dev
+          echo "VAULT_URL=http://vault:8200" >> docker/.env.dev
+
+          # Expliziter Pfad zur DEV-Compose Datei
+          docker compose -f docker/docker-compose.dev.yml up -d --build
+
+          echo "Warte auf System-Boot..."
+          sleep 30
+
+          if curl --retry 5 --retry-delay 5 -f http://localhost:8081/; then
+            echo "✅ PR-TEST BESTANDEN!"
+          else
+            echo "❌ PR-TEST FEHLGESCHLAGEN! Logs:"
+            docker compose -f docker/docker-compose.dev.yml logs lyndrix
+            exit 1
+          fi
+          docker compose -f docker/docker-compose.dev.yml down -v
