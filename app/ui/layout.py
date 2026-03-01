@@ -6,7 +6,8 @@ from nicegui import ui, app
 from ui.theme import apply_theme, UIStyles
 from ui.maintenance import attach_maintenance_overlay
 from core.bus import bus
-from core.modules.manager import module_manager # WICHTIG: Holt sich die Modul-Daten
+from core.components.plugins.logic.manager import module_manager
+
 
 def trigger_reload():
     ui.notify('System wird neu gestartet...', type='ongoing', spinner=True)
@@ -21,15 +22,19 @@ def get_nav_items():
     core_items = []
     plugin_items = []
 
-    for manifest in module_manager.get_manifests():
-        # WICHTIG: Wenn das Modul keine ui_route hat, überspringen wir es für die Sidebar!
-        if not manifest.ui_route:
+    manifests = module_manager.get_manifests()
+    # DEBUG: Schalte das ein, um im Log zu sehen, was der Manager findet
+    # print(f"DEBUG: Manager hat {len(manifests)} Manifeste gefunden")
+
+    for manifest in manifests:
+        # WICHTIG: Prüfe, ob ui_route existiert UND nicht None ist
+        if not hasattr(manifest, 'ui_route') or manifest.ui_route is None:
             continue
 
         item = {
             'label': manifest.name,
-            'icon': manifest.icon,
-            'target': manifest.ui_route, # Nutzt jetzt direkt die Route aus dem Manifest
+            'icon': manifest.icon or 'extension',
+            'target': manifest.ui_route,
             'type': manifest.type
         }
 
@@ -38,27 +43,48 @@ def get_nav_items():
         else:
             plugin_items.append(item)
 
+    # Die Einstellungen manuell hinzufügen, falls sie nicht als Modul geladen werden
+    core_items.append({
+        'label': 'Einstellungen',
+        'icon': 'settings',
+        'target': '/settings',
+        'type': 'CORE'
+    })
+
     return core_items, plugin_items
 
 def main_layout(page_title: str):
     def decorator(fn):
         @wraps(fn)
         async def wrapper(*args, **kwargs):
-            apply_theme()
-            dark = ui.dark_mode()
+            
+            # 1. Präferenz auslesen (Standard ist jetzt fest 'dark', kein schwammiges 'auto' mehr)
+            theme_pref = app.storage.user.get('theme_pref', 'dark')
+            
+            # 2. Präferenz an apply_theme übergeben
+            apply_theme(theme_pref) 
+            
+            # 3. Darkmode initialisieren
+            is_dark = theme_pref == 'dark'
+            dark = ui.dark_mode(value=is_dark)
 
-            # Darkmode Präferenz
-            theme_pref = app.storage.user.get('theme_pref', 'auto')
-            if theme_pref == 'dark': dark.enable()
-            elif theme_pref == 'light': dark.disable()
-            else: dark.auto()
+            # --- DER NEUE FIX ---
+            # Zwingt Tailwind sofort beim Laden der Seite, sich mit Python zu synchronisieren!
+            ui.run_javascript(f"document.documentElement.classList.toggle('dark', {'true' if is_dark else 'false'});")
 
-            def set_theme(mode: str):
+            def on_theme_switch(e):
+                """Speichert die Einstellung und wechselt das Theme flüssig ohne Reload."""
+                mode = 'dark' if e.value else 'light'
                 app.storage.user['theme_pref'] = mode
-                if mode == 'dark': dark.enable()
-                elif mode == 'light': dark.disable()
-                else: dark.auto()
-                ui.timer(0.5, lambda: ui.navigate.to(app.request.url.path), once=True)
+                
+                if e.value:
+                    dark.enable()
+                else:
+                    dark.disable()
+                
+                # Zwingt Tailwind sofort zum Update
+                js_cmd = f"document.documentElement.classList.toggle('dark', {'true' if e.value else 'false'});"
+                ui.run_javascript(js_cmd)
 
             # --- WARTUNGS-LOGIK ---
             attach_maintenance_overlay()
@@ -71,21 +97,17 @@ def main_layout(page_title: str):
                     ui.space() 
                     
                     with ui.row().classes('items-center gap-2'):
-                        # THEME TOGGLE
+                        # THEME TOGGLE (Jetzt mit Speichern & Live-Update)
                         with ui.row().classes('items-center bg-slate-100 dark:bg-zinc-800 px-2 py-0.5 rounded-full border border-slate-200 dark:border-zinc-700 mr-2'):
                             ui.icon('light_mode', size='14px').classes('text-orange-500')
-                            ui.switch().bind_value(dark, 'value').props('dense color=primary')
+                            # Wir nutzen jetzt unseren on_theme_switch Handler!
+                            ui.switch(value=is_dark, on_change=on_theme_switch).props('dense color=primary')
                             ui.icon('dark_mode', size='14px').classes('text-indigo-400')
 
                         ui.label(page_title).classes(UIStyles.LABEL_MINI)
                         with ui.button(icon='account_circle').props('flat round text-color=current'):
                             with ui.menu().classes(UIStyles.MENU_CONTAINER):
-                                with ui.menu_item('Darstellung').classes(UIStyles.MENU_ITEM):
-                                    with ui.menu().classes(UIStyles.MENU_CONTAINER):
-                                        ui.menu_item('Auto', on_click=lambda: set_theme('auto'))
-                                        ui.menu_item('Hell', on_click=lambda: set_theme('light'))
-                                        ui.menu_item('Dunkel', on_click=lambda: set_theme('dark'))
-                                ui.separator()
+                                # Das "Darstellung" Untermenü ist jetzt komplett weg!
                                 ui.menu_item('Neustart', on_click=trigger_reload).classes(UIStyles.MENU_ITEM)
                                 ui.menu_item('Abmelden', on_click=logout).classes(UIStyles.MENU_ITEM)
 
@@ -123,7 +145,11 @@ def main_layout(page_title: str):
 
             # --- CONTENT BEREICH ---
             with ui.column().classes('p-6 md:p-12 w-full max-w-7xl mx-auto flex-grow'):
-                return await fn(*args, **kwargs)
+                import inspect
+                if inspect.iscoroutinefunction(fn):
+                    return await fn(*args, **kwargs)
+                else:
+                    return fn(*args, **kwargs)
                 
         return wrapper
     return decorator
