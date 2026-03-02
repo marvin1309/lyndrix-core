@@ -1,10 +1,10 @@
 # 🚀 Lyndrix Core
 
-DEV-BRANCH
-
 **Lyndrix Core** is a highly modular, event-driven Internal Developer Platform (IDP) and Configuration Management Database (CMDB). It acts as a central control plane for GitOps-based infrastructure and application deployments.
 
 Developed with **Python**, **FastAPI**, and **NiceGUI**, Lyndrix provides a modern, reactive web interface for managing complex YAML structures, server landscapes, and zero-trust secrets.
+
+📚 **Documentation:** [https://marvin1309.github.io/lyndrix-core/](https://marvin1309.github.io/lyndrix-core/)
 
 ---
 

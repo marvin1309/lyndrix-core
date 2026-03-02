@@ -1,0 +1,3 @@
+https://github.com/marvin1309/lyndrix-meeting-bingo
+https://github.com/marvin1309/lyndrix-discord-notifier
+https://github.com/marvin1309/lyndrix-docker-manager

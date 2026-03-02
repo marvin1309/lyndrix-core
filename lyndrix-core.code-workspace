@@ -6,5 +6,12 @@
   ],
   "settings": {
     "python.languageServer": "Pylance",
+    "python-envs.pythonProjects": [
+      {
+        "path": "app/main.py",
+        "envManager": "ms-python.python:venv",
+        "packageManager": "ms-python.python:pip",
+      },
+    ],
   },
 }
