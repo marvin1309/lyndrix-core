@@ -2,6 +2,7 @@ import os
 import asyncio
 from core.bus import bus
 from core.logger import get_logger
+from config import settings
 
 # WICHTIG: Relativer Import für die Datei im gleichen Ordner
 from .crypto import KEY_FILE
@@ -16,7 +17,7 @@ class AutoUnsealManager:
         """
         Wird gerufen, wenn das System bereit ist.
         """
-        auto_key = os.getenv("LYNDRIX_MASTER_KEY")
+        auto_key = settings.LYNDRIX_MASTER_KEY
         
         if not auto_key:
             log.info("INFO: No LYNDRIX_MASTER_KEY in ENV. Waiting for manual input.")

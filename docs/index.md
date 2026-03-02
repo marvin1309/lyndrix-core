@@ -1,4 +1,4 @@
-# 🚀 Lyndrix Core Dokumentation
+# Lyndrix Core Dokumentation
 
 Willkommen zur offiziellen Dokumentation von **Lyndrix Core** – einer modernen, sicheren und hochgradig modularen Internal Developer Platform (IDP).
 
@@ -6,20 +6,20 @@ Lyndrix ist darauf ausgelegt, Entwicklern und Administratoren ein zentrales Hub 
 
 ---
 
-## ✨ Kern-Features
+## Kern-Features
 
-- 🧩 **Modulare Architektur:** Das System wächst mit deinen Anforderungen. Füge eigene Plugins (wie den _Docker Manager_ oder _Meeting Bingo_) nahtlos hinzu.
-- 🔐 **Secure by Default:** Tiefe Integration von **HashiCorp Vault**. Alle Passwörter, API-Keys und sensiblen Plugin-Daten werden stark verschlüsselt gespeichert.
-- ⚡ **Echtzeit UI:** Dank [NiceGUI](https://nicegui.io/) und FastAPI synchronisieren sich Dashboards und Dashboards in Echtzeit via WebSockets, ganz ohne lästige Page-Reloads.
-- 📡 **Event-Driven:** Ein globaler, asynchroner Event-Bus entkoppelt Kernsysteme und Plugins für maximale Stabilität.
+- **Modulare Architektur:** Das System wächst mit deinen Anforderungen. Füge eigene Plugins (wie den _Docker Manager_ oder _Meeting Bingo_) nahtlos hinzu.
+- **Secure by Default:** Tiefe Integration von **HashiCorp Vault**. Alle Passwörter, API-Keys und sensiblen Plugin-Daten werden stark verschlüsselt gespeichert.
+- **Echtzeit UI:** Dank NiceGUI und FastAPI synchronisieren sich Dashboards in Echtzeit via WebSockets, ganz ohne Page-Reloads.
+- **Event-Driven:** Ein globaler, asynchroner Event-Bus entkoppelt Kernsysteme und Plugins für maximale Stabilität.
 
 ---
 
-## 🚀 Quick Start (Entwicklungsumgebung)
+## Quick Start (Entwicklungsumgebung)
 
 Möchtest du Lyndrix Core lokal testen oder eigene Plugins entwickeln? Das geht in wenigen Sekunden dank unseres vorbereiteten Docker-Setups.
 
-**1. Repository klonen:**
+### 1. Repository klonen
 
 ```bash
 git clone https://github.com/marvin1309/lyndrix-core.git
@@ -43,10 +43,10 @@ Sobald die Initialisierung (Datenbank, Vault, Auth-Service) abgeschlossen ist, e
 
 Hier findest du in Zukunft alle weiterführenden Anleitungen (Work in Progress):
 
-- 🛠️ **[Installation & Deployment](https://www.google.com/search?q=./deployment.md)** (Produktion, Docker Swarm, Reverse Proxies)
-- 👨‍💻 **[Plugin Development Guide](https://www.google.com/search?q=./plugins.md)** (Wie baue ich ein eigenes Lyndrix-Plugin?)
-- 🔐 **[Security & Vault](https://www.google.com/search?q=./security.md)** (Wie Lyndrix deine Daten schützt)
-- ⚙️ **[Architektur & API](https://www.google.com/search?q=./architecture.md)** (Deep-Dive in den Event-Bus und den Core)
+- **Installation & Deployment** (Produktion, Docker Swarm, Reverse Proxies)
+- **Plugin Development Guide** (Wie baue ich ein eigenes Lyndrix-Plugin?)
+- **Security & Vault** (Wie Lyndrix deine Daten schützt)
+- **Architektur & API** (Deep-Dive in den Event-Bus und den Core)
 
 ---
 

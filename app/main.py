@@ -6,6 +6,7 @@ from fastapi import FastAPI, Request
 from fastapi.responses import RedirectResponse
 from nicegui import ui, app as nicegui_app 
 
+from config import settings
 from core.bus import bus
 from core.logger import setup_logging, get_logger
 
@@ -96,4 +97,4 @@ async def startup_event():
     log.info("STARTUP: Lyndrix Core Engine is starting...")
     bus.emit("system:started", {})
 
-ui.run_with(app, storage_secret='lyndrix_v3_stable')
+ui.run_with(app, storage_secret=settings.STORAGE_SECRET)

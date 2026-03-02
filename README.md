@@ -1,25 +1,25 @@
-# 🚀 Lyndrix Core
+# Lyndrix Core
 
 **Lyndrix Core** is a highly modular, event-driven Internal Developer Platform (IDP) and Configuration Management Database (CMDB). It acts as a central control plane for GitOps-based infrastructure and application deployments.
 
 Developed with **Python**, **FastAPI**, and **NiceGUI**, Lyndrix provides a modern, reactive web interface for managing complex YAML structures, server landscapes, and zero-trust secrets.
 
-📚 **Documentation:** [https://marvin1309.github.io/lyndrix-core/](https://marvin1309.github.io/lyndrix-core/)
+**Documentation:** [https://marvin1309.github.io/lyndrix-core/](https://marvin1309.github.io/lyndrix-core/)
 
 ---
 
-## ✨ Core Features
+## Core Features
 
-- 🧩 **Modular Plugin Architecture:** The system is completely divided into independent plugins that communicate with each other via a central Event Bus.
-- 🔄 **GitOps SSOT Synchronization:** Automatic import, parsing, and write-back (commit & push) of `service.yml` definitions from GitLab repositories.
-- 🛡️ **Zero-Trust Security (HashiCorp Vault):** Sensitive data (GitLab PATs, Webhooks) are never stored locally in the database. Instead, they are dynamically retrieved from a HashiCorp Vault / OpenBao instance.
-- 📋 **Change Management:** Integrated approval workflow. Changes to the infrastructure or applications first generate a "Change Request" before they are provisioned (or pushed to Git).
-- 🖥️ **Hybrid Editor:** The UI offers both user-friendly forms for standard settings and a dynamic JSON/YAML tree editor for complex configurations.
-- 🔔 **Event-Driven Notifications:** Automatic alerts (e.g., via Discord Webhooks) for new change requests or system events.
+- **Modular Plugin Architecture:** The system is completely divided into independent plugins that communicate with each other via a central Event Bus.
+- **GitOps SSOT Synchronization:** Automatic import, parsing, and write-back (commit & push) of `service.yml` definitions from GitLab repositories.
+- **Zero-Trust Security (HashiCorp Vault):** Sensitive data (GitLab PATs, Webhooks) are never stored locally in the database. Instead, they are dynamically retrieved from a HashiCorp Vault / OpenBao instance.
+- **Change Management:** Integrated approval workflow. Changes to the infrastructure or applications first generate a "Change Request" before they are provisioned (or pushed to Git).
+- **Hybrid Editor:** The UI offers both user-friendly forms for standard settings and a dynamic JSON/YAML tree editor for complex configurations.
+- **Event-Driven Notifications:** Automatic alerts (e.g., via Discord Webhooks) for new change requests or system events.
 
 ---
 
-## 🏗️ System Architecture & Plugins
+## System Architecture & Plugins
 
 The system currently consists of the following core modules:
 
@@ -34,7 +34,7 @@ The system currently consists of the following core modules:
 
 ---
 
-## 🛠️ Installation & Setup
+## Installation & Setup
 
 ### Prerequisites
 
@@ -76,7 +76,7 @@ The web interface will then be accessible at `http://localhost:8081` (or the por
 
 ---
 
-## ⚙️ Configuration (Day-2 Operations)
+## Configuration (Day-2 Operations)
 
 Plugin configuration is **no longer** done in the code, but directly through the web interface:
 
@@ -87,4 +87,4 @@ Plugin configuration is **no longer** done in the code, but directly through the
 
 ---
 
-_Developed with ❤️ for scalable Homelabs and Enterprise Environments._
+_Developed for scalable Homelabs and Enterprise Environments._

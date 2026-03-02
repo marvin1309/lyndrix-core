@@ -1,14 +1,14 @@
-# 👨‍💻 Plugin Development Guide
+# Plugin Development Guide
 
 Lyndrix Core ist als modulare Plattform konzipiert. Jedes Tool, das du baust (z. B. ein Docker-Dashboard oder ein Tool für Meeting-Bingo), ist ein isoliertes Plugin.
 
 ## Plugin Struktur
 
-Ein Plugin lebt in einem eigenen Ordner unter `app/plugins/dein_plugin_name/` und benötigt mindestens eine `__init__.py`.
+Ein Plugin lebt in einem eigenen Ordner unter `app/plugins/dein_plugin_name/` und benötigt mindestens eine `entrypoint.py` (oder `__init__.py`).
 
 ```text
 app/plugins/mein_plugin/
-├── __init__.py     # Hauptlogik & UI
+├── entrypoint.py   # Hauptlogik & UI
 └── assets/         # (Optional) Bilder, CSS, etc.
 
 ```

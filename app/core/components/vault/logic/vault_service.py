@@ -3,6 +3,7 @@ import os
 import asyncio
 from core.bus import bus
 from core.logger import get_logger
+from config import settings
 
 from .crypto import decrypt_vault_keys, KEY_FILE
 from .vault_init import VaultInitializer
@@ -12,7 +13,7 @@ log = get_logger("Core:VaultService")
 class VaultService:
     def __init__(self):
         # Prüft VAULT_ADDR (Standard) oder VAULT_URL (deine Config) mit neutralem Fallback
-        self.url = os.getenv("VAULT_ADDR") or os.getenv("VAULT_URL") or "http://vault:8200"
+        self.url = settings.VAULT_URL
         self.client = hvac.Client(url=self.url)
         self.is_connected = False
         self.ui_state = "loading" # loading, needs_init, needs_unseal, ready
@@ -55,8 +56,8 @@ class VaultService:
                 self.is_connected = True
                 
                 # Wenn wir ein Keyfile haben, laden wir den Token sofort wieder in den Client
-                if os.path.exists(KEY_FILE):
-                    auto_key = os.getenv("LYNDRIX_MASTER_KEY")
+                if os.path.exists(KEY_FILE) and os.path.getsize(KEY_FILE) > 0:
+                    auto_key = settings.LYNDRIX_MASTER_KEY
                     if auto_key:
                         try:
                             with open(KEY_FILE, 'rb') as f:
@@ -88,6 +89,7 @@ class VaultService:
             self.ui_state = "ready"
             self.is_connected = True
             bus.emit("vault:opened", {})
+            bus.emit("vault:ready_for_data", {})
         except Exception as e:
             log.error(f"CRITICAL: Init failed: {e}", exc_info=True)
 
