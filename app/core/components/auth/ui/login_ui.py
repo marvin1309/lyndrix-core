@@ -1,9 +1,12 @@
 from nicegui import ui, app
+from core.logger import get_logger
 # FIX 1: 'app.' Präfixe entfernt
 from core.components.database.logic.db_service import db_instance
 from core.components.auth.logic.auth_service import User
 # FIX 2: Von bootstrap auf unsere neue hashing.py umgestellt
 from core.components.auth.logic.hashing import verify_password
+
+log = get_logger("UI:Login")
 
 def render_login_page():
     # Hintergrund-Styling

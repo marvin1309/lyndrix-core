@@ -6,7 +6,7 @@ from core.logger import get_logger
 # WICHTIG: Relativer Import für die Datei im gleichen Ordner
 from .crypto import KEY_FILE
 
-log = get_logger("AutoUnseal")
+log = get_logger("Core:AutoUnseal")
 
 class AutoUnsealManager:
     def __init__(self):
@@ -19,7 +19,7 @@ class AutoUnsealManager:
         auto_key = os.getenv("LYNDRIX_MASTER_KEY")
         
         if not auto_key:
-            log.info("ℹ️ Kein LYNDRIX_MASTER_KEY in ENV. Warte auf manuelle Eingabe.")
+            log.info("INFO: No LYNDRIX_MASTER_KEY in ENV. Waiting for manual input.")
             return
 
         # Kurze Pause für die Sockets
@@ -27,10 +27,10 @@ class AutoUnsealManager:
         
         # LOGIK-ENTSCHEIDUNG
         if not os.path.exists(KEY_FILE):
-            log.info("🪄 Frischer Vault erkannt. Starte AUTO-INIT...")
+            log.info("INIT: Fresh Vault detected. Starting AUTO-INIT...")
             bus.emit("vault:init_requested", {"key": auto_key})
         else:
-            log.info("🔑 Keyfile gefunden. Starte AUTO-UNSEAL...")
+            log.info("UNSEAL: Keyfile found. Starting AUTO-UNSEAL...")
             bus.emit("vault:unseal_requested", {"key": auto_key})
 
 # Die Instanz wird hier erstellt

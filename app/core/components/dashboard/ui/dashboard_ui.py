@@ -1,9 +1,12 @@
 import psutil
 from nicegui import ui
 from ui.theme import UIStyles
+from core.logger import get_logger
+
+log = get_logger("UI:Dashboard")
 
 async def render_dashboard_page():
-    ui.label('System Dashboard').classes('text-2xl font-bold')
+    ui.label('Dashboard').classes('text-2xl font-bold')
     
     # Header Bereich
     with ui.card().classes(UIStyles.CARD_GLASS + ' w-full mb-6'):
@@ -46,7 +49,7 @@ async def render_dashboard_page():
             
             ui_elements['DISK SPACE'][0].set_text(f"{d}%")
             ui_elements['DISK SPACE'][1].set_value(d/100)
-        except Exception: 
-            pass
+        except Exception as e: 
+            log.debug(f"ERROR: Stats update failed: {e}")
 
     ui.timer(2.0, update_ui)

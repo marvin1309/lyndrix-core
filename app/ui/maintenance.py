@@ -1,6 +1,9 @@
 from nicegui import ui, app
 from ui.theme import UIStyles
+from core.logger import get_logger
 from core.bus import bus
+
+log = get_logger("UI:Maintenance")
 
 # Sicherstellen, dass das Dictionary existiert
 if not hasattr(app.state, 'maintenance_locks'):

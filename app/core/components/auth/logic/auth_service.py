@@ -4,7 +4,7 @@ from core.logger import get_logger
 from core.components.database.logic.db_service import Base, db_instance
 from .hashing import hash_password, verify_password
 
-log = get_logger("AuthService")
+log = get_logger("Core:AuthService")
 
 class User(Base):
     __tablename__ = "users"
@@ -20,26 +20,26 @@ class AuthService:
         bus.subscribe("db:connected")(self.initialize_iam)
 
     async def initialize_iam(self, payload):
-        log.info("🔐 IAM Service: Starte Initialisierung...")
+        log.info("IAM: Starting initialization...")
         try:
             Base.metadata.create_all(bind=db_instance.engine)
-            log.debug("Datenbank-Tabellen für IAM geprüft/erstellt.")
+            log.debug("DB: IAM tables checked/created.")
             self.seed_admin()
-            log.info("✅ IAM Service: Bereit.")
+            log.info("SUCCESS: IAM Service ready.")
             bus.emit("iam:ready")
         except Exception as e:
-            log.error(f"❌ IAM Service: Initialisierung fehlgeschlagen: {e}", exc_info=True)
+            log.error(f"ERROR: IAM Service initialization failed: {e}", exc_info=True)
 
     def seed_admin(self):
         if not db_instance.SessionLocal:
-            log.warning("Seed abgebrochen: SessionLocal ist nicht bereit.")
+            log.warning("SEED: Aborted, SessionLocal not ready.")
             return
             
         with db_instance.SessionLocal() as session:
-            log.debug("Prüfe auf existierenden Admin-User...")
+            log.debug("CHECK: Checking for existing admin user...")
             admin = session.query(User).filter(User.username == "admin").first()
             if not admin:
-                log.info("🐣 Kein Admin gefunden. Erstelle Standard-Account...")
+                log.info("CREATE: No admin found. Creating default account...")
                 try:
                     new_admin = User(
                         username="admin",
@@ -50,35 +50,35 @@ class AuthService:
                     )
                     session.add(new_admin)
                     session.commit()
-                    log.info("✅ Admin-User erfolgreich erstellt (admin:admin)")
+                    log.info("SUCCESS: Admin user created successfully (admin:admin)")
                 except Exception as e:
-                    log.error(f"❌ Fehler beim Admin-Seeding: {e}")
+                    log.error(f"ERROR: Admin seeding failed: {e}", exc_info=True)
             else:
-                log.debug("Admin-User existiert bereits. Überspringe Seeding.")
+                log.debug("SKIP: Admin user already exists.")
 
     def authenticate_user(self, username, password):
         """Prüft Anmeldedaten und protokolliert den Vorgang detailliert."""
-        log.info(f"🔑 Login-Versuch für User: {username}")
+        log.info(f"AUTH: Login attempt for user: {username}")
         
         if not db_instance.SessionLocal:
-            log.error("Login unmöglich: Datenbank-Session nicht verfügbar.")
+            log.error("AUTH: Login impossible: Database session unavailable.")
             return None
 
         with db_instance.SessionLocal() as session:
             user = session.query(User).filter(User.username == username).first()
             
             if not user:
-                log.warning(f"🚫 Login gescheitert: User '{username}' existiert nicht.")
+                log.warning(f"AUTH: Login failed: User '{username}' does not exist.")
                 return None
             
-            log.debug(f"User '{username}' gefunden. Prüfe Passwort-Hash...")
+            log.debug(f"AUTH: User '{username}' found. Verifying password hash...")
             
             # WICHTIG: Erst der Hash aus der DB, dann das eingegebene Passwort
             if verify_password(str(user.hashed_password), password):
-                log.info(f"✅ Login erfolgreich: {username} ({user.full_name})")
+                log.info(f"SUCCESS: Login successful: {username} ({user.full_name})")
                 return user
             
-            log.warning(f"🚫 Login gescheitert: Passwort für '{username}' ist inkorrekt.")
+            log.warning(f"AUTH: Login failed: Incorrect password for '{username}'.")
             return None
 
 auth_service = AuthService()

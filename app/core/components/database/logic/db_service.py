@@ -1,13 +1,11 @@
+import asyncio
 from sqlalchemy import create_engine, text
 from sqlalchemy.orm import sessionmaker, declarative_base
 from core.bus import bus
 from core.logger import get_logger
-import asyncio
-
-# WICHTIG: Settings importieren
 from config import settings
 
-log = get_logger("DatabaseService")
+log = get_logger("Core:DatabaseService")
 Base = declarative_base()
 
 class DatabaseService:
@@ -15,76 +13,64 @@ class DatabaseService:
         self.engine = None
         self.SessionLocal = None
         self.is_connected = False
-        # Wir abonnieren das Event, wenn der Vault bereit ist
         bus.subscribe("vault:opened")(self.init_db_connection)
 
     async def init_db_connection(self, payload=None):
-        log.info("🗄️ Vault ist offen. Bereite Datenbank-Verbindung vor...")
-        
+        log.info("DATABASE: Vault is open. Initializing engine...")
         try:
-            # Debug-Log um zu sehen was wirklich geladen wurde
-            log.debug(f"Konfiguration geladen: Host={settings.DB_HOST}, User={settings.DB_USER}, DB={settings.DB_NAME}")
-            
-            self.db_url = settings.DATABASE_URL
-            log.info(f"🔗 Verbinde mit: mysql+pymysql://{settings.DB_USER}:***@{settings.DB_HOST}/{settings.DB_NAME}")
-            
+            # WICHTIG: connect_timeout auf 5 Sekunden setzen
             self.engine = create_engine(
-                self.db_url, 
+                settings.DATABASE_URL, 
                 pool_pre_ping=True,
-                echo=False # Auf True setzen für SQL-Logs
+                connect_args={'connect_timeout': 5} 
             )
             
             self.SessionLocal = sessionmaker(autocommit=False, autoflush=False, bind=self.engine)
+            
+            # Wir starten den Loop explizit als Task
             asyncio.create_task(self._connection_loop())
             
         except Exception as e:
-            log.error(f"💥 Kritischer Fehler bei DB-Initialisierung: {e}")
-                
+            log.error(f"CRITICAL: Engine initialization failed: {e}")
 
     async def _connection_loop(self):
-        log.info(f"🔄 Reconnect-Loop: Versuche Verbindung zu {settings.DB_HOST}...")
+        log.info(f"CONNECT: Attempting connection to {settings.DB_HOST}...")
+        loop = asyncio.get_event_loop()
+        
         while not self.is_connected:
             try:
-                if self.engine:
-                    with self.engine.connect() as conn:
-                        conn.execute(text("SELECT 1"))
-                    
-                    self.is_connected = True
-                    log.info("✅ Verbindung zur MariaDB hergestellt!")
-                    
-                    bus.emit("db:connected", {"status": "ready"})
-                    bus.emit("system:maintenance_mode", {"service": "db", "active": False})
-                    
-                    # Watchdog starten, um Abstürze während der Laufzeit zu fangen
-                    asyncio.create_task(self._watchdog())
-                    break 
+                # FIX: Wir führen den synchronen Connect in einem separaten Thread aus!
+                # Das verhindert, dass die gesamte App einfriert.
+                await loop.run_in_executor(None, self._check_db_sync)
+                
+                self.is_connected = True
+                log.info("SUCCESS: Database connection established.")
+                
+                bus.emit("db:connected", {"status": "ready"})
+                bus.emit("system:maintenance_mode", {"service": "db", "active": False})
+                
+                asyncio.create_task(self._watchdog())
+                break 
                     
             except Exception as e:
-                log.warning(f"⏳ Datenbank noch nicht erreichbar... ({e})")
-                bus.emit("system:maintenance_mode", {
-                    "service": "db",
-                    "active": True, 
-                    "title": "Datenbank Offline", 
-                    "msg": "Warte auf MariaDB unter " + settings.DB_HOST
-                })
+                log.warning(f"RETRY: Database not reachable. Retrying in 5s... ({e})")
                 await asyncio.sleep(5)
 
+    def _check_db_sync(self):
+        """Synchroner Helper-Check für den Executor-Thread."""
+        with self.engine.connect() as conn:
+            conn.execute(text("SELECT 1"))
+
     async def _watchdog(self):
-        """Prüft alle 10 Sekunden, ob die DB noch da ist."""
+        """Überwacht die Verbindung im Hintergrund."""
+        loop = asyncio.get_event_loop()
         while self.is_connected:
-            await asyncio.sleep(10)
+            await asyncio.sleep(15)
             try:
-                with self.engine.connect() as conn:
-                    conn.execute(text("SELECT 1"))
-            except Exception as e:
-                log.error(f"❌ Datenbankverbindung verloren: {e}")
+                await loop.run_in_executor(None, self._check_db_sync)
+            except Exception:
+                log.error("LOST: Database connection timed out.")
                 self.is_connected = False
-                bus.emit("system:maintenance_mode", {
-                    "service": "db",
-                    "active": True, 
-                    "title": "Datenbank verloren", 
-                    "msg": "Reconnect läuft..."
-                })
                 asyncio.create_task(self._connection_loop())
                 break
 

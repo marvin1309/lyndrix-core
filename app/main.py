@@ -7,7 +7,7 @@ from fastapi.responses import RedirectResponse
 from nicegui import ui, app as nicegui_app 
 
 from core.bus import bus
-from core.logger import setup_logging
+from core.logger import setup_logging, get_logger
 
 # --- DER FIX: Nur noch aus der Fassade laden! ---
 from core.services import vault_instance, db_instance, auth_service, boot_service
@@ -24,6 +24,7 @@ from ui.maintenance import attach_maintenance_overlay
 # ... (restliche main.py wie vorhin)
 setup_logging()
 app = FastAPI()
+log = get_logger("Core:Main")
 
 # ==========================================
 # DER TÜRSTEHER (Middleware)
@@ -92,9 +93,7 @@ register_dashboard_routes()
 
 @app.on_event("startup")
 async def startup_event():
-    from core.logger import get_logger
-    log = get_logger("LyndrixCore")
-    log.info("🏗️ Lyndrix Core Engine startet...")
+    log.info("STARTUP: Lyndrix Core Engine is starting...")
     bus.emit("system:started", {})
 
 ui.run_with(app, storage_secret='lyndrix_v3_stable')

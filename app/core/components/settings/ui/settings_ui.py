@@ -1,5 +1,6 @@
 import psutil
 from nicegui import ui
+from core.logger import get_logger
 
 # 1. Globale UI Tools
 from ui.theme import UIStyles 
@@ -11,6 +12,8 @@ from core.components.plugins.ui.plugins_ui import render_plugin_manager
 
 # 3. Manager importieren, um echte Plugins zu laden
 from core.components.plugins.logic.manager import module_manager
+
+log = get_logger("UI:Settings")
 
 async def render_settings_page():
     """Rendert das komplette Settings-Dashboard."""
@@ -47,30 +50,6 @@ async def render_settings_page():
             with ui.tab_panel(tab_plugins).classes('p-0 gap-6'):
                 # 3.1 Der Installer (GitHub Download)
                 render_plugin_manager()
-                
-                ui.label('Plugin Konfiguration').classes(UIStyles.TITLE_H3 + ' mt-8 mb-4')
-                
-                # Hol alle registrierten Module aus dem Manager
-                active_modules = module_manager.registry
-                
-                # Prüfen ob Plugins vorhanden sind
-                plugins_found = [m for m in active_modules.values() if m["manifest"].type == "PLUGIN"]
-                
-                if not plugins_found:
-                    ui.label("Keine aktiven Plugins gefunden.").classes(UIStyles.TEXT_MUTED + ' italic p-4')
-                else:
-                    for entry in plugins_found:
-                        manifest = entry["manifest"]
-                        module = entry["module"]
-                        context = entry["context"]
-                        
-                        # Schicke Karte für jedes Plugin
-                        with ui.expansion(f'{manifest.name} (v{manifest.version})', icon=manifest.icon).classes('w-full border border-zinc-800 rounded-xl mb-2 lyndrix-glass-card'):
-                            if hasattr(module, 'render_settings_ui'):
-                                # Ruft die UI des Plugins auf und übergibt den Kontext (für Vault-Zugriff etc.)
-                                module.render_settings_ui(context)
-                            else:
-                                ui.label("Dieses Plugin hat keine eigenen Einstellungen.").classes('p-4 italic text-zinc-500')
 
             # 4. SYSTEM INFO
             with ui.tab_panel(tab_info).classes('p-0 gap-6'):

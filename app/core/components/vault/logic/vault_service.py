@@ -7,7 +7,7 @@ from core.logger import get_logger
 from .crypto import decrypt_vault_keys, KEY_FILE
 from .vault_init import VaultInitializer
 
-log = get_logger("VaultService")
+log = get_logger("Core:VaultService")
 
 class VaultService:
     def __init__(self):
@@ -26,7 +26,7 @@ class VaultService:
         try:
             mounts = self.client.sys.list_mounted_secrets_engines()
             if 'lyndrix/' not in mounts:
-                log.info("🛠️ Erstelle isolierten 'lyndrix' Secret-Store (KV v2)...")
+                log.info("SETUP: Creating isolated 'lyndrix' Secret-Store (KV v2)...")
                 self.client.sys.enable_secrets_engine(
                     backend_type='kv', 
                     path='lyndrix', 
@@ -34,20 +34,20 @@ class VaultService:
                 )
             return True
         except Exception as e:
-            log.error(f"⚠️ Fehler beim Mount-Check: {e}")
+            log.error(f"ERROR: Mount check failed: {e}", exc_info=True)
             return False
 
     async def check_vault_health(self, payload=None):
-        log.info("🔍 Prüfe Vault Status...")
+        log.info("CHECK: Checking Vault status...")
         try:
             if not self.client.sys.is_initialized():
                 self.ui_state = "needs_init"
-                log.warning("⚠️ Vault ist noch nicht initialisiert!")
+                log.warning("WARNING: Vault is not initialized yet!")
                 return
 
             if self.client.sys.is_sealed():
                 self.ui_state = "needs_unseal"
-                log.info("🔓 Vault ist versiegelt. Warte auf Key...")
+                log.info("LOCKED: Vault is sealed. Waiting for key...")
             else:
                 # --- FIX FÜR TOKEN-VERLUST ---
                 self.ui_state = "ready"
@@ -61,20 +61,20 @@ class VaultService:
                             with open(KEY_FILE, 'rb') as f:
                                 keys = decrypt_vault_keys(auto_key, f.read())
                                 self.client.token = keys['root_token']
-                                log.info("🔑 Token im laufenden Betrieb wiederhergestellt.")
+                                log.info("AUTH: Token restored during runtime.")
                         except:
-                            log.error("❌ Token-Wiederherstellung fehlgeschlagen (Falscher Master Key?)")
+                            log.error("ERROR: Token restoration failed (Wrong Master Key?)")
 
                 await self._ensure_lyndrix_mount()
-                log.info("✅ Vault ist bereits offen und bereit.")
+                log.info("SUCCESS: Vault is already open and ready.")
                 bus.emit("vault:opened", {})
                 bus.emit("vault:ready_for_data", {}) # Plugins dürfen jetzt laden
         except Exception as e:
-            log.error(f"❌ Vault Verbindungsfehler: {e}")
+            log.error(f"ERROR: Vault connection error: {e}", exc_info=True)
 
     async def handle_init(self, payload):
         key = payload.get("key")
-        log.info("🪄 Initialisiere neuen Vault...")
+        log.info("INIT: Initializing new Vault...")
         try:
             init_helper = VaultInitializer(self.url)
             keys = init_helper.setup_fresh_vault(key)
@@ -88,7 +88,7 @@ class VaultService:
             self.is_connected = True
             bus.emit("vault:opened", {})
         except Exception as e:
-            log.error(f"💥 Init fehlgeschlagen: {e}")
+            log.error(f"CRITICAL: Init failed: {e}", exc_info=True)
 
 
 
@@ -106,10 +106,10 @@ class VaultService:
             if success:
                 self.ui_state = "ready"
                 self.is_connected = True
-                log.info("🔓 Vault erfolgreich entsiegelt und bereit!")
+                log.info("UNSEAL: Vault successfully unsealed and ready!")
                 bus.emit("vault:opened", {})
                 bus.emit("vault:ready_for_data", {}) # Plugins dürfen jetzt laden
         except Exception as e:
-            log.error(f"❌ Unseal fehlgeschlagen: {e}")
+            log.error(f"ERROR: Unseal failed: {e}", exc_info=True)
 
 vault_instance = VaultService()

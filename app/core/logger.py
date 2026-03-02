@@ -2,97 +2,74 @@ import logging
 import os
 import sys
 from logging.handlers import RotatingFileHandler
+from collections import deque
 
-# ==========================================
-# 1. KONFIGURATION & PFADE
-# ==========================================
+# Pfade
 LOG_DIR = "/app/logs"
 os.makedirs(LOG_DIR, exist_ok=True)
 LOG_FILE = os.path.join(LOG_DIR, "lyndrix.log")
 
-# Steuerung über Umgebungsvariable
 IS_DEBUG = os.getenv("LYNDRIX_DEBUG", "false").lower() == "true"
 LOG_LEVEL = logging.DEBUG if IS_DEBUG else logging.INFO
 
-# DEFINITION DER SPALTENBREITE (Wichtig für das Alignment!)
-# %-8s  -> Reserviert 8 Zeichen für das Level (z.B. INFO, CRITICAL)
-# %-28s -> Reserviert 28 Zeichen für den Namen (z.B. Plugin:Discord Notifier)
-FORMAT_STR = "%(asctime)s | %(levelname)-8s | %(name)-28s | %(message)s"
-DATE_FORMAT = "%H:%M:%S"
+# ENTERPRISE FORMATTING
+# [Zeit] | [Level] | [Komponente (25 Zeichen)] | Nachricht
+FORMAT_STR = "%(asctime)s | %(levelname)-8s | %(name)-25s | %(message)s"
+DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 
-FORMATTER = logging.Formatter(FORMAT_STR, datefmt=DATE_FORMAT)
+# Globaler Speicher für UI-Logs (Die letzten 1000 Einträge)
+# Wird von der UI abgefragt, um Logs pro Plugin zu filtern
+log_capture_buffer = deque(maxlen=1000)
 
-# ==========================================
-# 2. FILTER FÜR SAUBERE KONSOLEN
-# ==========================================
-class LogNoiseFilter(logging.Filter):
-    """
-    Unterdrückt unnötigen Spam in der Konsole, 
-    damit man die wichtigen System-Events sieht.
-    """
-    def filter(self, record):
-        if IS_DEBUG:
-            return True # Im Debug-Modus alles zeigen
-            
-        # Diese Begriffe fliegen aus der Konsole (INFO-Level) raus
-        noise_keywords = [
-            "WebSocket", "socket.io", "connection open", 
-            "connection closed", "/socket.io/", 
-            "system:metrics_update", "heartbeat",
-            "POST /api/v1/login", "GET /static"
-        ]
-        msg = record.getMessage()
-        return not any(keyword in msg for keyword in noise_keywords)
+class EnterpriseFormatter(logging.Formatter):
+    """Sorgt für absolut sauberes Alignment ohne Emoji-Varianz."""
+    def format(self, record):
+        # Falls doch mal ein Emoji durchrutscht, hier könnte man es filtern
+        return super().format(record)
 
-# ==========================================
-# 3. SETUP FUNKTION
-# ==========================================
+class RingBufferHandler(logging.Handler):
+    """Speichert Logs im RAM für die UI-Anzeige."""
+    def emit(self, record):
+        log_entry = self.format(record)
+        log_capture_buffer.append((record.name, record.levelname, log_entry))
+
 def setup_logging():
     root_logger = logging.getLogger()
-    root_logger.setLevel(logging.DEBUG) # Basis immer auf DEBUG
+    root_logger.setLevel(logging.DEBUG)
 
-    # Alte Handler entfernen (wichtig für Hot-Reload)
     if root_logger.hasHandlers():
         root_logger.handlers.clear()
 
-    # --- A. KONSOLEN HANDLER (Docker / Terminal) ---
+    # Formatter Instanz
+    formatter = EnterpriseFormatter(FORMAT_STR, datefmt="%H:%M:%S")
+
+    # 1. STREAM HANDLER (Konsole)
     console_handler = logging.StreamHandler(sys.stdout)
-    console_handler.setFormatter(FORMATTER)
-    console_handler.setLevel(LOG_LEVEL) # INFO oder DEBUG je nach ENV
-    console_handler.addFilter(LogNoiseFilter()) 
+    console_handler.setFormatter(formatter)
+    console_handler.setLevel(LOG_LEVEL)
     root_logger.addHandler(console_handler)
 
-    # --- B. DATEI HANDLER (UI Log-Viewer / Dauerarchiv) ---
-    # Hier speichern wir IMMER alles im DEBUG, um Fehler später finden zu können
-    file_handler = RotatingFileHandler(
-        LOG_FILE, 
-        maxBytes=10*1024*1024, # 10 MB pro Datei
-        backupCount=5,         # Behalte die letzten 5 Logs
-        encoding="utf-8"
-    )
-    file_handler.setFormatter(FORMATTER)
-    file_handler.setLevel(logging.DEBUG) 
+    # 2. FILE HANDLER
+    file_handler = RotatingFileHandler(LOG_FILE, maxBytes=10*1024*1024, backupCount=5, encoding="utf-8")
+    file_handler.setFormatter(formatter)
+    file_handler.setLevel(logging.DEBUG)
     root_logger.addHandler(file_handler)
 
-    # --- C. EXTERNE BIBLIOTHEKEN STUMM SCHALTEN ---
-    # Wir schalten Bibliotheken, die zu viel labern, eine Stufe leiser
-    external_loggers = {
-        "uvicorn": logging.WARNING,
-        "uvicorn.error": logging.WARNING,
-        "uvicorn.access": logging.CRITICAL, # Zugriff-Logs fast komplett aus
-        "sqlalchemy.engine": logging.WARNING,
-        "hvac": logging.INFO,               # Vault Client
-        "urllib3": logging.INFO,            # HTTP Client
-        "nicegui": logging.WARNING          # UI Framework
-    }
+    # 3. MEMORY HANDLER (Für UI Log-Viewer)
+    memory_handler = RingBufferHandler()
+    memory_handler.setFormatter(formatter)
+    memory_handler.setLevel(logging.DEBUG)
+    root_logger.addHandler(memory_handler)
 
-    for logger_name, level in external_loggers.items():
-        ext_logger = logging.getLogger(logger_name)
-        ext_logger.setLevel(level if not IS_DEBUG else logging.DEBUG)
-        ext_logger.handlers = root_logger.handlers
-        ext_logger.propagate = False 
+    # Externe Logger dämpfen
+    silent_loggers = ["uvicorn", "uvicorn.access", "sqlalchemy.engine", "hvac", "urllib3", "nicegui"]
+    for name in silent_loggers:
+        l = logging.getLogger(name)
+        l.setLevel(logging.WARNING if not IS_DEBUG else logging.DEBUG)
+        l.propagate = False
+        l.handlers = root_logger.handlers
 
-    logging.info(f"✨ Lyndrix Logging initialisiert (Level: {'DEBUG' if IS_DEBUG else 'INFO'})")
+    logging.info(f"LOGGING: Initialized with level {'DEBUG' if IS_DEBUG else 'INFO'}")
 
 def get_logger(name: str):
     """Factory Methode für konsistente Logger-Namen."""

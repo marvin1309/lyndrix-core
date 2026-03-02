@@ -3,7 +3,7 @@ from core.bus import bus
 from core.logger import get_logger
 
 
-log = get_logger("BootService")
+log = get_logger("Core:BootService")
 
 class BootService:
     def __init__(self):
@@ -11,8 +11,8 @@ class BootService:
         bus.subscribe("iam:ready")(self.on_core_ready)
         
     async def on_core_ready(self, payload):
-        log.info("🚀 Alle Kernsysteme (Vault, DB, IAM) sind online.")
-        log.info("📦 Lade System-Module und Plugins...")
+        log.info("STARTUP: All core systems (Vault, DB, IAM) are online.")
+        log.info("LOAD: Loading system modules and plugins...")
         
         # ---------------------------------------------------------
         # LOKALER IMPORT: Löst den Zirkelbezug auf!
@@ -23,7 +23,7 @@ class BootService:
         
         await asyncio.sleep(0.5)
         self.is_booting = False
-        log.info("✅ Boot-Sequenz abgeschlossen. System freigegeben.")
+        log.info("SUCCESS: Boot sequence completed. System released.")
         
         # NEU: Das Signal an alle interessierten Plugins senden
         bus.emit("system:boot_complete", {"status": "success"})

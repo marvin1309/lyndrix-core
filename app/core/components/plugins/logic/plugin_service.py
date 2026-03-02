@@ -3,140 +3,216 @@ import sys
 import shutil
 import asyncio
 import zipfile
+import time
 import httpx
 from pathlib import Path
-
 from core.logger import get_logger
 from core.bus import bus
 
-log = get_logger("PluginService")
+log = get_logger("Core:PluginService")
 
 class PluginService:
     def __init__(self):
-        # Pfad zum Plugin-Verzeichnis (z.B. app/plugins)
-        self.plugin_dir = Path("plugins")
+        # FIX: Robust path finding
+        # app/core/components/plugins/logic/plugin_service.py -> app/plugins
+        self.plugin_dir = Path(__file__).parents[4] / "plugins"
         self.plugin_dir.mkdir(parents=True, exist_ok=True)
-        
-        # GitHub API Base für Repository-Infos
         self.github_api_base = "https://api.github.com/repos"
+        
+        # Cache für Marketplace-Daten (URL -> Daten)
+        self._marketplace_cache = []
+        self._cache_timestamp = 0
+        self._cache_ttl = 900  # 15 Minuten Cache-Dauer
 
     def _extract_repo_info(self, github_url: str):
-        """Macht aus 'https://github.com/user/repo' ein Tuple ('user', 'repo')"""
         parts = github_url.rstrip("/").split("/")
         if len(parts) >= 2:
-            return parts[-2], parts[-1]
-        raise ValueError("Ungültige GitHub URL")
+            repo = parts[-1]
+            if repo.endswith(".git"):
+                repo = repo[:-4]
+            return parts[-2], repo
+        raise ValueError("Invalid GitHub URL format")
+
+    def _get_headers(self):
+        """Erstellt die Header für GitHub API Anfragen."""
+        headers = {
+            "User-Agent": "Lyndrix-Core/1.0",
+            "Accept": "application/vnd.github.v3+json"
+        }
+        token = os.environ.get("GITHUB_TOKEN")
+        if token:
+            headers["Authorization"] = f"token {token}"
+        return headers
 
     async def install_plugin(self, github_url: str):
-        """Lädt ein Plugin von GitHub herunter, installiert es und lädt die Requirements."""
+        """Downloads, extracts and registers a new plugin from GitHub."""
         user, repo = self._extract_repo_info(github_url)
-        plugin_path = self.plugin_dir / repo
         
-        log.info(f"📥 Starte Installation von {repo} aus {github_url}...")
+        # FIX: Python-kompatiblen Ordnernamen erzwingen (keine Bindestriche)
+        safe_repo_name = repo.replace("-", "_")
+        plugin_path = self.plugin_dir / safe_repo_name
+        zip_path = self.plugin_dir / f"{repo}.zip"
+        extracted_dir = None
+        
+        log.info(f"INSTALL: Requesting plugin '{repo}' from {github_url}")
         bus.emit("plugin:install_started", {"repo": repo})
 
         if plugin_path.exists():
-            log.warning(f"⚠️ Plugin {repo} existiert bereits. Nutze Update.")
+            log.warning(f"CONFLICT: Plugin directory '{safe_repo_name}' already exists. Operation aborted")
             return False
 
         try:
-            # 1. Standard-Branch ermitteln (main oder master)
-            async with httpx.AsyncClient() as client:
+            async with httpx.AsyncClient(follow_redirects=True, headers=self._get_headers()) as client:
+                # 1. Fetch Repository Metadata
                 api_url = f"{self.github_api_base}/{user}/{repo}"
-                repo_info = (await client.get(api_url)).json()
-                default_branch = repo_info.get("default_branch", "main")
+                resp = await client.get(api_url)
                 
-                # 2. ZIP herunterladen
-                zip_url = f"{github_url}/archive/refs/heads/{default_branch}.zip"
-                zip_path = self.plugin_dir / f"{repo}.zip"
+                if resp.status_code == 403:
+                    log.warning(f"INSTALL: Rate limit hit for metadata. Assuming 'main' branch.")
+                    default_branch = "main"
+                else:
+                    resp.raise_for_status()
+                    repo_info = resp.json()
+                    default_branch = repo_info.get("default_branch", "main")
                 
-                log.info(f"⬇️ Lade {zip_url} herunter...")
-                response = await client.get(zip_url, follow_redirects=True)
+                # 2. Download Archive
+                # Wir nutzen die direkte Web-URL, da der API-Zipball-Endpunkt oft auf ungültige 404-Legacy-URLs leitet
+                zip_url = f"https://github.com/{user}/{repo}/archive/refs/heads/{default_branch}.zip"
+                log.info(f"DOWNLOAD: Fetching source from {zip_url}")
+                response = await client.get(zip_url)
+                
+                # Fallback falls der Branch falsch ist (z.B. master statt main)
+                if response.status_code == 404 and default_branch == "main":
+                    log.info("DOWNLOAD: 'main' not found, trying 'master'...")
+                    zip_url = f"https://github.com/{user}/{repo}/archive/refs/heads/master.zip"
+                    response = await client.get(zip_url)
+                
                 response.raise_for_status()
                 
                 with open(zip_path, 'wb') as f:
                     f.write(response.content)
 
-            # 3. ZIP entpacken
-            log.info("📦 Entpacke Dateien...")
+            # 3. Extraction
+            log.info("FILESYSTEM: Extracting archive and cleaning up")
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                # GitHub packt alles in einen Unterordner (z.B. lyndrix-meeting-bingo-main)
-                root_folder = zip_ref.namelist()[0]
+                # GitHub-Archive haben immer einen Root-Ordner wie 'repo-branchname'
+                root_folder = zip_ref.namelist()[0].split('/')[0]
+                extracted_dir = self.plugin_dir / root_folder
+                
+                # Cleanup alter Extraktionen falls vorhanden
+                if extracted_dir.exists():
+                    shutil.rmtree(extracted_dir)
+                    
                 zip_ref.extractall(self.plugin_dir)
             
-            # Ordner umbenennen zu sauberem Repo-Namen und aufräumen
-            extracted_dir = self.plugin_dir / root_folder.strip("/")
             extracted_dir.rename(plugin_path)
-            zip_path.unlink() # ZIP löschen
 
-            # 4. Requirements installieren
+            # 4. Dependency Management
             await self._install_requirements(plugin_path)
 
-            log.info(f"✅ Plugin {repo} erfolgreich installiert!")
-            bus.emit("plugin:installed", {"repo": repo, "path": str(plugin_path)})
-            
-            # Jetzt dem Manager sagen, dass er das neue Plugin laden soll
+            # 5. INTEGRATION: Notify the ModuleManager to load the new plugin
             from core.components.plugins.logic.manager import module_manager
-            module_manager.load_module(repo) # Angenommen, dein Manager hat so eine Funktion
+            success = module_manager.load_module(safe_repo_name, is_plugin=True)
 
-            return True
+            if success:
+                log.info(f"SUCCESS: Plugin '{repo}' is now installed and active")
+                bus.emit("plugin:installed", {"repo": repo, "path": str(plugin_path)})
+                return True
+            else:
+                log.error(f"INTEGRATION_ERROR: Plugin files extracted but manager failed to load '{safe_repo_name}'")
+                return False
 
         except Exception as e:
-            log.error(f"❌ Fehler bei der Installation von {repo}: {str(e)}")
-            # Aufräumen bei Fehler
+            log.error(f"INSTALL_ERROR: Installation failed for {repo}: {str(e)}", exc_info=True)
             if plugin_path.exists():
                 shutil.rmtree(plugin_path)
+            if extracted_dir and extracted_dir.exists():
+                shutil.rmtree(extracted_dir)
             bus.emit("plugin:install_failed", {"repo": repo, "error": str(e)})
             return False
-
-    async def update_plugin(self, github_url: str):
-        """Aktualisiert ein Plugin (Deinstallieren -> Neu installieren)."""
-        user, repo = self._extract_repo_info(github_url)
-        log.info(f"🔄 Starte Update für {repo}...")
-        
-        await self.uninstall_plugin(repo)
-        await self.install_plugin(github_url)
-
-    async def uninstall_plugin(self, plugin_name: str):
-        """Entfernt ein Plugin komplett vom System."""
-        plugin_path = self.plugin_dir / plugin_name
-        
-        if not plugin_path.exists():
-            log.warning(f"⚠️ Plugin {plugin_name} nicht gefunden.")
-            return False
-
-        log.info(f"🗑️ Deinstalliere Plugin {plugin_name}...")
-        
-        try:
-            # Dem Manager sagen, dass das Plugin entladen werden soll
-            from core.components.plugins.logic.manager import module_manager
-            # module_manager.unload_module(plugin_name) # Falls implementiert
-            
-            shutil.rmtree(plugin_path)
-            log.info(f"✅ Plugin {plugin_name} deinstalliert.")
-            bus.emit("plugin:uninstalled", {"repo": plugin_name})
-            return True
-        except Exception as e:
-            log.error(f"❌ Fehler bei der Deinstallation von {plugin_name}: {str(e)}")
-            return False
+        finally:
+            if zip_path.exists():
+                zip_path.unlink()
 
     async def _install_requirements(self, plugin_path: Path):
-        """Installiert externe Abhängigkeiten aus der requirements.txt des Plugins."""
         req_file = plugin_path / "requirements.txt"
         if req_file.exists():
-            log.info(f"⚙️ Installiere Python-Abhängigkeiten für {plugin_path.name}...")
-            # Wir nutzen sys.executable, um sicherzustellen, dass pip im korrekten .venv ausgeführt wird
+            log.info(f"DEPENDENCIES: Installing requirements for {plugin_path.name}")
             process = await asyncio.create_subprocess_exec(
                 sys.executable, "-m", "pip", "install", "-r", str(req_file),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             stdout, stderr = await process.communicate()
-            
             if process.returncode != 0:
-                log.error(f"⚠️ Fehler beim Installieren der Requirements:\n{stderr.decode()}")
+                log.error(f"PIP_ERROR: Dependency installation failed: {stderr.decode()}")
             else:
-                log.info(f"✅ Requirements erfolgreich installiert.")
+                log.info("SUCCESS: All dependencies resolved")
 
-# Singleton-Instanz
+    async def uninstall_plugin(self, repo_name: str):
+        """Löscht den Plugin-Ordner physisch."""
+        plugin_path = self.plugin_dir / repo_name
+        if not plugin_path.exists():
+            log.warning(f"UNINSTALL: Plugin path {plugin_path} not found.")
+            return False
+        
+        try:
+            shutil.rmtree(plugin_path)
+            log.info(f"SUCCESS: Plugin files for '{repo_name}' removed.")
+            return True
+        except Exception as e:
+            log.error(f"ERROR: Failed to delete plugin files: {e}", exc_info=True)
+            return False
+
+    async def fetch_marketplace_data(self):
+        """Liest die plugin-list.txt und holt Metadaten von GitHub."""
+        # Cache-Check: Wenn Daten noch frisch sind, API-Anrufe sparen
+        if self._marketplace_cache and (time.time() - self._cache_timestamp < self._cache_ttl):
+            log.debug("MARKETPLACE: Loading from cache")
+            return self._marketplace_cache
+
+        list_file = Path(__file__).parents[4] / "assets" / "plugin-list.txt"
+        if not list_file.exists():
+            return []
+
+        plugins = []
+        async with httpx.AsyncClient(headers=self._get_headers(), follow_redirects=True) as client:
+            with open(list_file, "r") as f:
+                urls = [line.strip() for line in f.readlines() if line.strip()]
+            
+            for url in urls:
+                try:
+                    user, repo = self._extract_repo_info(url)
+                    api_url = f"{self.github_api_base}/{user}/{repo}"
+                    resp = await client.get(api_url)
+                    if resp.status_code == 200:
+                        data = resp.json()
+                        plugins.append({
+                            "name": data.get("name"),
+                            "description": data.get("description", "Keine Beschreibung verfügbar."),
+                            "stars": data.get("stargazers_count", 0),
+                            "url": data.get("html_url"),
+                            "clone_url": url, # Für den Installer
+                            "author": data.get("owner", {}).get("login", "Unknown")
+                        })
+                    elif resp.status_code == 403:
+                        log.warning(f"MARKETPLACE: Rate limit hit for {repo}. Using fallback data.")
+                        plugins.append({
+                            "name": repo,
+                            "description": "Metadaten konnten nicht geladen werden (GitHub Rate Limit).",
+                            "stars": "N/A",
+                            "url": url,
+                            "clone_url": url,
+                            "author": user
+                        })
+                except Exception as e:
+                    log.warning(f"MARKETPLACE: Failed to fetch info for {url}: {e}")
+        
+        # Cache aktualisieren
+        if plugins:
+            self._marketplace_cache = plugins
+            self._cache_timestamp = time.time()
+            
+        return plugins
+
 plugin_service = PluginService()

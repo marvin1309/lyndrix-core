@@ -2,7 +2,7 @@ from core.components.plugins.logic.models import ModuleManifest
 
 manifest = ModuleManifest(
     id="lyndrix.core.dashboard",
-    name="System Dashboard",
+    name="Dashboard",
     version="1.0.0",
     description="Das Haupt-Dashboard für die Systemüberwachung.",
     author="Lyndrix",

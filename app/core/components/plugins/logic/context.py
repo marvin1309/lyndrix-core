@@ -20,10 +20,10 @@ class ModuleContext:
     def subscribe(self, topic: str):
         def decorator(callback):
             if topic in self.manifest.permissions.subscribe or "*" in self.manifest.permissions.subscribe:
-                self.log.debug(f"Abonniert Topic: {topic}")
+                self.log.debug(f"SUBSCRIBE: Subscribed to topic: {topic}")
                 global_bus.subscribe(topic)(callback)
             else:
-                self.log.warning(f"🚫 Rechtefehler: Modul darf '{topic}' nicht abonnieren!")
+                self.log.warning(f"PERMISSION: Module not allowed to subscribe to '{topic}'!")
             return callback
         return decorator
 
@@ -31,7 +31,7 @@ class ModuleContext:
         if topic in self.manifest.permissions.emit or "*" in self.manifest.permissions.emit:
             global_bus.emit(topic, payload)
         else:
-            self.log.warning(f"🚫 Rechtefehler: Modul darf '{topic}' nicht senden!")
+            self.log.warning(f"PERMISSION: Module not allowed to emit '{topic}'!")
 
     # --- VAULT PROXY (Hier war der Einrückungsfehler) ---
 
@@ -62,7 +62,7 @@ class ModuleContext:
     def set_secret(self, key: str, value: str):
         """Speichert einen Wert im KV-V2 Store, ohne andere Keys zu löschen."""
         if not vault_instance.is_connected:
-            self.log.error("Vault nicht verbunden.")
+            self.log.error("VAULT: Vault not connected.")
             return False
             
         path = self._get_vault_path()
@@ -86,8 +86,8 @@ class ModuleContext:
                 mount_point="lyndrix",
                 secret=current_data
             )
-            self.log.info(f"✅ Secret '{key}' sicher persistiert unter '{path}'.")
+            self.log.info(f"SUCCESS: Secret '{key}' persisted securely at '{path}'.")
             return True
         except Exception as e:
-            self.log.error(f"❌ Fehler beim Schreiben in Vault: {e}")
+            self.log.error(f"ERROR: Failed to write to Vault: {e}", exc_info=True)
             return False

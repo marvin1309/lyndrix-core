@@ -1,7 +1,13 @@
 from pathlib import Path
 from typing import Optional
-from pydantic import Field
-from pydantic_settings import BaseSettings, SettingsConfigDict
+from pydantic import Field, BaseModel
+
+try:
+    from pydantic_settings import BaseSettings, SettingsConfigDict
+except ImportError:
+    # Fallback for environments where pydantic-settings is not yet installed
+    from pydantic import BaseSettings
+    from pydantic import ConfigDict as SettingsConfigDict
 
 class Settings(BaseSettings):
     """
@@ -12,7 +18,7 @@ class Settings(BaseSettings):
     APP_NAME: str = "Lyndrix Core"
     ENV_TYPE: str = Field(default="dev")
     LOG_LEVEL: str = "INFO"
-
+    APP_TITLE: str = "LYNDRIX - DEVELOPER MODE"  # Neuer Parameter für den Titel in der UI
     # --- SERVER ---
     PORT: int = 8081
     STORAGE_SECRET: str = "dev_secret_only"
