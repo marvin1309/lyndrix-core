@@ -11,7 +11,8 @@ log = get_logger("Core:VaultService")
 
 class VaultService:
     def __init__(self):
-        self.url = os.getenv("VAULT_ADDR", "http://lyndrix-vault-dev:8200")
+        # Prüft VAULT_ADDR (Standard) oder VAULT_URL (deine Config) mit neutralem Fallback
+        self.url = os.getenv("VAULT_ADDR") or os.getenv("VAULT_URL") or "http://vault:8200"
         self.client = hvac.Client(url=self.url)
         self.is_connected = False
         self.ui_state = "loading" # loading, needs_init, needs_unseal, ready
