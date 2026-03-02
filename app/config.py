@@ -2,12 +2,7 @@ from pathlib import Path
 from typing import Optional
 from pydantic import Field, BaseModel
 
-try:
-    from pydantic_settings import BaseSettings, SettingsConfigDict
-except ImportError:
-    # Fallback for environments where pydantic-settings is not yet installed
-    from pydantic import BaseSettings
-    from pydantic import ConfigDict as SettingsConfigDict
+from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     """
@@ -34,6 +29,12 @@ class Settings(BaseSettings):
     VAULT_URL: str = "http://vault:8200"
     VAULT_SKIP_VERIFY: bool = True
     LYNDRIX_MASTER_KEY: Optional[str] = None
+
+    # --- CRYPTO & SECURITY ---
+    LYNDRIX_VAULT_KEY_FILE: str = "/data/security/vault_keys.enc"
+    LYNDRIX_ARGON_TIME: int = 3
+    LYNDRIX_ARGON_MEM: int = 65536
+    LYNDRIX_ARGON_PARALLEL: int = 4
 
     # Konfiguration für Pydantic
     model_config = SettingsConfigDict(

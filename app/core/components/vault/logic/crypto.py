@@ -2,14 +2,21 @@ import os
 import json
 from argon2 import PasswordHasher, low_level
 from Crypto.Cipher import AES
+from config import settings
 
-KEY_FILE = "/data/security/vault_keys.enc"
+# Konfiguration via Environment (12-Factor App)
+KEY_FILE = settings.LYNDRIX_VAULT_KEY_FILE
+
+# Argon2 Parameter (anpassbar für schwache Hardware vs. High-Security)
+ARGON_TIME = settings.LYNDRIX_ARGON_TIME
+ARGON_MEM = settings.LYNDRIX_ARGON_MEM
+ARGON_PARALLEL = settings.LYNDRIX_ARGON_PARALLEL
 
 def derive_key(master_key: str, salt: bytes) -> bytes:
     return low_level.hash_secret_raw(
         secret=master_key.encode(),
         salt=salt,
-        time_cost=3, memory_cost=65536, parallelism=4, 
+        time_cost=ARGON_TIME, memory_cost=ARGON_MEM, parallelism=ARGON_PARALLEL, 
         hash_len=32, type=low_level.Type.ID
     )
 
