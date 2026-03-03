@@ -165,3 +165,34 @@ Plugin configuration is **no longer** done in the code, but directly through the
 ---
 
 _Developed for scalable Homelabs and Enterprise Environments._
+
+## 🗺️ Roadmap & Next Steps
+
+This project uses a modern, component-based architecture (Vertical Slicing) and an Event-Driven Design. To further maximize stability, security, and performance, the following milestones are planned:
+
+### Phase 1: Security & Critical Fixes (Prio 1) 🛡️
+
+These points focus on production security and must be implemented before productive use.
+
+- [ ] **Secure Initial Passwords:** Removal of hardcoded admin credentials (`admin:admin`). Switch to environment variables (e.g., `ADMIN_INITIAL_PASSWORD`) or one-time random password generation on first start.
+- [ ] **Docker Hardening:** Switching the Docker container to a non-root user (e.g., `appuser`) to minimize the system's attack surface.
+
+### Phase 2: Performance & Core-Architecture (Prio 2) 🚀
+
+This is about removing bottlenecks and keeping the architecture clean.
+
+- [ ] **Asynchronous Database Layer:** Migration from synchronous SQLAlchemy to **SQLAlchemy AsyncIO** (`AsyncSession`, `create_async_engine`) to prevent blocking DB calls from slowing down the FastAPI/NiceGUI event loop.
+- [ ] **Strict Separation of Concerns:** Cleanup of services (e.g., `auth_service.py`). SQLAlchemy models like the `User` class will be strictly moved to their respective `models.py` files.
+- [ ] **API-Ready Boot Middleware:** Adjustment of the Boot Interceptor. API routes (`/api/...`) will receive correct `503 Service Unavailable` JSON responses instead of a redirect (`302`) during system startup.
+
+### Phase 3: Code Quality & Testing (Prio 3) 🧹
+
+Long-term goals for better Developer Experience (DX) and maintainability.
+
+- [ ] **Typing:** Consistent introduction of Python 3.11 Type Hints for all functions, parameters, and return values throughout the Core.
+- [ ] **Dependency Injection (DI):** Gradual replacement of global state (Singleton Facade via `core.services`) in favor of the native FastAPI `Depends` system. This will massively facilitate unit testing and mocking of services.
+- [ ] **Test Coverage:** Expansion of unit and integration tests, starting with the most critical core components (Auth, Vault, DB).
+
+---
+
+_We welcome contributions! If you would like to work on any of these points, feel free to open an issue or a pull request._
