@@ -38,41 +38,118 @@ The system currently consists of the following core modules:
 
 ### Prerequisites
 
-- Python 3.9+
-- Running HashiCorp Vault / OpenBao server (for secrets management)
+- Docker & Docker Compose
 - GitLab (for SSOT repositories)
 
-### 1. Clone repository & prepare environment
+### 1. Development Environment (Local)
+
+Since Lyndrix Core relies on a MariaDB database and a HashiCorp Vault instance, the recommended way to run it locally is via the provided Docker Compose setup. This ensures all dependencies are correctly configured.
 
 ```bash
-git clone https://<your-git-url>/lyndrix-core.git
+# 1. Clone repository
+git clone https://github.com/marvin1309/lyndrix-core.git
 cd lyndrix-core
-python -m venv .venv
 
-# Windows:
-.venv\Scripts\activate
-# Linux/macOS:
-source .venv/bin/activate
-
+# 2. Start the Development Stack
+# This starts Lyndrix (Hot-Reload), MariaDB, and Vault
+docker compose -f docker/docker-compose.dev.yml up -d --build
 ```
 
-### 2. Install dependencies
+The web interface will then be accessible at `http://localhost:8081`.
 
-```bash
-pip install -r requirements.txt
+- **Vault UI:** `http://localhost:8200`
 
+### 2. Production Deployment
+
+For production environments, use the pre-built Docker image. Below is a reference `docker-compose.yml` (including Traefik labels) for a secure deployment.
+
+```yaml
+version: "3.8"
+
+services:
+  lyndrix:
+    image: ghcr.io/marvin1309/lyndrix-core:latest
+    container_name: lyndrix-core
+    restart: unless-stopped
+    ports:
+      - "8081:8081"
+    environment:
+      - DB_USER=admin
+      - DB_PASSWORD=secret
+      - DB_HOST=lyndrix-db
+      - DB_NAME=lyndrix_db
+      - VAULT_URL=http://lyndrix-vault:8200
+      - LYNDRIX_MASTER_KEY=your_secure_master_key_here
+      - ENV_TYPE=prod
+    volumes:
+      - ./plugins:/app/plugins
+      - ./secure_data:/data/security
+    depends_on:
+      db:
+        condition: service_healthy
+      vault:
+        condition: service_started
+    networks:
+      - secured
+      - stack_internal
+    # Optional: Traefik Labels
+    labels:
+      traefik.enable: "true"
+      traefik.http.routers.lyndrix.rule: "Host(`lyndrix.your-domain.com`)"
+      traefik.http.routers.lyndrix.entrypoints: "websecure"
+      traefik.http.routers.lyndrix.tls: "true"
+
+  db:
+    image: mariadb:10.11
+    container_name: lyndrix-db
+    restart: unless-stopped
+    networks:
+      - stack_internal
+    environment:
+      MARIADB_ROOT_PASSWORD: secret
+      MARIADB_DATABASE: lyndrix_db
+      MARIADB_USER: admin
+      MARIADB_PASSWORD: secret
+    volumes:
+      - ./db_data:/var/lib/mysql
+    healthcheck:
+      test:
+        [
+          "CMD",
+          "mariadb-admin",
+          "ping",
+          "-h",
+          "localhost",
+          "-uadmin",
+          "-psecret",
+        ]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+
+  vault:
+    image: hashicorp/vault:latest
+    container_name: lyndrix-vault
+    restart: unless-stopped
+    cap_add:
+      - IPC_LOCK
+    environment:
+      VAULT_LOCAL_CONFIG: '{"storage": {"file": {"path": "/vault/file"}}, "listener": {"tcp": {"address": "0.0.0.0:8200", "tls_disable": 1}}, "ui": true}'
+      VAULT_API_ADDR: "http://lyndrix-vault:8200"
+    networks:
+      - secured
+      - stack_internal
+    volumes:
+      - ./vault_data:/vault/file
+    command: server
+
+networks:
+  secured:
+    external: true
+    name: "services-secured"
+  stack_internal:
+    driver: "bridge"
 ```
-
-_(Note: Required packages include: `nicegui`, `fastapi`, `sqlalchemy`, `GitPython`, `requests`, `pyyaml`, `psutil`, `hvac`)_
-
-### 3. Start the server
-
-```bash
-python main.py
-
-```
-
-The web interface will then be accessible at `http://localhost:8081` (or the port configured in your `main.py`).
 
 ---
 
