@@ -9,6 +9,8 @@ services:
     volumes:
       - ../app:/app
       - ../.dev/secure_data:/data/security
+      - ../.dev/storage:/data/storage
+
       # FIX: Wir mounten das Skript explizit rein, damit es trotz Volume-Mount da ist!
       - ./entrypoint.sh:/app/entrypoint.sh
     env_file:
