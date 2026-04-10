@@ -1,6 +1,8 @@
 import logging
 import os
 import sys
+import re
+import json
 from logging.handlers import RotatingFileHandler
 from collections import deque
 
@@ -22,9 +24,33 @@ DATE_FORMAT = "%Y-%m-%d %H:%M:%S"
 log_capture_buffer = deque(maxlen=1000)
 
 class EnterpriseFormatter(logging.Formatter):
-    """Sorgt für absolut sauberes Alignment ohne Emoji-Varianz."""
+    # Keys we NEVER want to see in plaintext in logs or UI
+    SENSITIVE_KEYS = {'token', 'password', 'secret', 'secret_value', 'private_key', 'key', 'auth'}
+    
+    def _mask_secrets(self, obj):
+        """Recursively hides sensitive values in dictionaries/lists."""
+        if isinstance(obj, dict):
+            return {
+                k: "********" if k.lower() in self.SENSITIVE_KEYS else self._mask_secrets(v) 
+                for k, v in obj.items()
+            }
+        elif isinstance(obj, list):
+            return [self._mask_secrets(i) for i in obj]
+        return obj
+
     def format(self, record):
-        # Falls doch mal ein Emoji durchrutscht, hier könnte man es filtern
+        # If the message is a dictionary (common in our Event Bus logs)
+        if isinstance(record.msg, dict):
+            record.msg = self._mask_secrets(record.msg)
+            
+        # If it's a string, we can use a Regex to catch common token patterns
+        # Example: x-gitlab-token: [HIDDEN]
+        elif isinstance(record.msg, str):
+            for key in self.SENSITIVE_KEYS:
+                # Matches "token: abc123", "token='abc123'", etc.
+                pattern = rf"({key}['\" ]*[:=][ '\" ]*)([^ '\",\n]+)"
+                record.msg = re.sub(pattern, r"\1********", record.msg, flags=re.IGNORECASE)
+
         return super().format(record)
 
 class RingBufferHandler(logging.Handler):

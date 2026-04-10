@@ -47,3 +47,4 @@ class GlobalEventBus:
                     self.log.error(f"ERROR: Error in callback for '{topic}': {e}", exc_info=True)
 
 bus = GlobalEventBus()
+

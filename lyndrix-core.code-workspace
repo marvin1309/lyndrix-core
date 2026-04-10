@@ -1,17 +1,20 @@
 {
-  "folders": [
-    {
-      "path": ".",
-    },
-  ],
-  "settings": {
-    "python.languageServer": "Pylance",
-    "python-envs.pythonProjects": [
-      {
-        "path": "app/main.py",
-        "envManager": "ms-python.python:venv",
-        "packageManager": "ms-python.python:pip",
-      },
-    ],
-  },
+	"folders": [
+		{
+			"path": "."
+		},
+		{
+			"path": "../lyndrix-iac-orchestrator"
+		}
+	],
+	"settings": {
+		"python-envs.pythonProjects": [
+			{
+				"path": "iac_core/app/generator.py",
+				"envManager": "ms-python.python:venv",
+				"packageManager": "ms-python.python:pip",
+				"workspace": "lyndrix-iac-orchestrator"
+			}
+		]
+	}
 }
