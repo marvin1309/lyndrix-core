@@ -86,73 +86,73 @@ def render_plugins_page():
 
                                         # --- SETTINGS / CONFIG MODAL ---
                                         def open_settings(manifest=m, active=is_active):
-                                            with ui.dialog() as settings_dialog, ui.card().classes('w-full max-w-xl bg-zinc-950 border border-zinc-800 p-6'):
-                                                with ui.row().classes('w-full justify-between items-center mb-4'):
+                                            # UPDATED CARD CLASSES: Full width/height calc, no max width, flex-col to allow inner scrolling, 20px padding
+                                            with ui.dialog() as settings_dialog, ui.card().classes('w-[calc(100vw-40px)] h-[calc(100vh-40px)] max-w-none max-h-none bg-zinc-950 border border-zinc-800 p-[20px] flex flex-col'):
+                                                with ui.row().classes('w-full justify-between items-center mb-4 shrink-0'):
                                                     ui.label(f'Settings: {manifest.name}').classes('text-xl font-bold font-mono text-emerald-500')
                                                     ui.button(icon='close', on_click=settings_dialog.close).props('flat round dense')
                                                 
-                                                with ui.scroll_area().classes('w-full max-h-[70vh] pr-4'):
-                                                  with ui.column().classes('w-full gap-4'):
-                                                    # 1. Status Switch
-                                                    def toggle_plugin_inner(e):
-                                                        module_manager.toggle_module(manifest.id, e.value)
-                                                        if e.value:
-                                                            ui.notify(f'{manifest.name} aktiviert.', type='positive')
-                                                        else:
-                                                            ui.notify(f'{manifest.name} deaktiviert.', type='warning')
-                                                    
-                                                    ui.switch('Plugin Aktiviert', value=active, on_change=toggle_plugin_inner).props('color=emerald').classes('w-full')
-                                                    
-                                                    # --- PLUGIN SPECIFIC SETTINGS ---
-                                                    # Wir prüfen, ob das Modul geladen ist und eine Settings-UI hat
-                                                    entry = module_manager.registry.get(manifest.id)
-                                                    if entry and entry.get("status") == "active":
-                                                        mod = entry.get("module")
-                                                        ctx = entry.get("context")
+                                                # UPDATED SCROLL AREA: flex-grow instead of max-h-[70vh] so it scales perfectly with the massive card
+                                                with ui.scroll_area().classes('w-full flex-grow pr-4'):
+                                                    with ui.column().classes('w-full gap-4'):
+                                                        # 1. Status Switch
+                                                        def toggle_plugin_inner(e):
+                                                            module_manager.toggle_module(manifest.id, e.value)
+                                                            if e.value:
+                                                                ui.notify(f'{manifest.name} aktiviert.', type='positive')
+                                                            else:
+                                                                ui.notify(f'{manifest.name} deaktiviert.', type='warning')
                                                         
-                                                        if mod and hasattr(mod, 'render_settings_ui'):
-                                                            ui.separator().classes('bg-zinc-800 my-2')
-                                                            ui.label('Konfiguration').classes('text-xs font-bold uppercase tracking-widest text-zinc-500')
-                                                            try:
-                                                                mod.render_settings_ui(ctx)
-                                                            except Exception as e:
-                                                                ui.label(f"Fehler in Plugin-UI: {str(e)}").classes('text-red-500 text-xs')
-                                                    
-                                                    ui.separator().classes('bg-zinc-800')
-
-                                                    # 2. Actions (Nur für Plugins, nicht Core)
-                                                    if manifest.type == "PLUGIN":
-                                                        async def reload_plugin_inner():
-                                                            try:
-                                                                ui.notify(f'Reloade {manifest.name}...', type='ongoing')
-                                                                await module_manager.reload_module(manifest.id)
-                                                                ui.notify('Reload abgeschlossen.', type='positive')
-                                                                settings_dialog.close()
-                                                                ui.navigate.to('/settings')
-                                                            except Exception as e:
-                                                                ui.notify(f'Fehler beim Reload: {str(e)}', type='negative')
-
-                                                        ui.button('Plugin neu laden', icon='refresh', on_click=reload_plugin_inner).props('outline color=slate').classes('w-full')
+                                                        ui.switch('Plugin Aktiviert', value=active, on_change=toggle_plugin_inner).props('color=emerald').classes('w-full')
                                                         
-                                                        async def delete_plugin_inner():
-                                                            # Versuch, den Ordnernamen zu ermitteln
-                                                            mod_entry = module_manager.registry.get(manifest.id, {})
-                                                            mod = mod_entry.get("module")
+                                                        # --- PLUGIN SPECIFIC SETTINGS ---
+                                                        entry = module_manager.registry.get(manifest.id)
+                                                        if entry and entry.get("status") == "active":
+                                                            mod = entry.get("module")
+                                                            ctx = entry.get("context")
                                                             
-                                                            if mod:
-                                                                import os
-                                                                folder_name = os.path.basename(os.path.dirname(mod.__file__))
-                                                                if await plugin_service.uninstall_plugin(folder_name):
-                                                                    module_manager.unload_module(manifest.id)
-                                                                    ui.notify(f'Plugin {folder_name} gelöscht.', type='positive')
+                                                            if mod and hasattr(mod, 'render_settings_ui'):
+                                                                ui.separator().classes('bg-zinc-800 my-2')
+                                                                ui.label('Konfiguration').classes('text-xs font-bold uppercase tracking-widest text-zinc-500')
+                                                                try:
+                                                                    mod.render_settings_ui(ctx)
+                                                                except Exception as e:
+                                                                    ui.label(f"Fehler in Plugin-UI: {str(e)}").classes('text-red-500 text-xs')
+                                                        
+                                                        ui.separator().classes('bg-zinc-800')
+
+                                                        # 2. Actions (Nur für Plugins, nicht Core)
+                                                        if manifest.type == "PLUGIN":
+                                                            async def reload_plugin_inner():
+                                                                try:
+                                                                    ui.notify(f'Reloade {manifest.name}...', type='ongoing')
+                                                                    await module_manager.reload_module(manifest.id)
+                                                                    ui.notify('Reload abgeschlossen.', type='positive')
                                                                     settings_dialog.close()
                                                                     ui.navigate.to('/settings')
-                                                                else:
-                                                                    ui.notify('Löschen fehlgeschlagen.', type='negative')
-                                                            else:
-                                                                ui.notify('Fehler: Modul nicht geladen. Bitte erst aktivieren.', type='warning')
+                                                                except Exception as e:
+                                                                    ui.notify(f'Fehler beim Reload: {str(e)}', type='negative')
 
-                                                        ui.button('Deinstallieren', icon='delete', color='red', on_click=delete_plugin_inner).props('unelevated').classes('w-full')
+                                                            ui.button('Plugin neu laden', icon='refresh', on_click=reload_plugin_inner).props('outline color=slate').classes('w-full')
+                                                            
+                                                            async def delete_plugin_inner():
+                                                                mod_entry = module_manager.registry.get(manifest.id, {})
+                                                                mod = mod_entry.get("module")
+                                                                
+                                                                if mod:
+                                                                    import os
+                                                                    folder_name = os.path.basename(os.path.dirname(mod.__file__))
+                                                                    if await plugin_service.uninstall_plugin(folder_name):
+                                                                        module_manager.unload_module(manifest.id)
+                                                                        ui.notify(f'Plugin {folder_name} gelöscht.', type='positive')
+                                                                        settings_dialog.close()
+                                                                        ui.navigate.to('/settings')
+                                                                    else:
+                                                                        ui.notify('Löschen fehlgeschlagen.', type='negative')
+                                                                else:
+                                                                    ui.notify('Fehler: Modul nicht geladen. Bitte erst aktivieren.', type='warning')
+
+                                                            ui.button('Deinstallieren', icon='delete', color='red', on_click=delete_plugin_inner).props('unelevated').classes('w-full')
 
                                                 settings_dialog.open()
 
@@ -208,5 +208,4 @@ def render_plugins_page():
 
 def render_plugin_manager():
     """Wird vom Settings-Tab aufgerufen. Wir leiten einfach auf die Hauptseite um oder rendern inline."""
-    # Da wir jetzt eine komplexe UI haben, rendern wir sie inline
     render_plugins_page()

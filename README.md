@@ -1,167 +1,118 @@
-# Lyndrix Core
+# 🚀 Lyndrix Core
 
-**Lyndrix Core** is a highly modular, event-driven Internal Developer Platform (IDP) and Configuration Management Database (CMDB). It acts as a central control plane for GitOps-based infrastructure and application deployments.
+**Ein hochsicheres, erweiterbares und Cloud-natives Application Framework.**
 
-Developed with **Python**, **FastAPI**, and **NiceGUI**, Lyndrix provides a modern, reactive web interface for managing complex YAML structures, server landscapes, and zero-trust secrets.
-
-**Documentation:** [https://marvin1309.github.io/lyndrix-core/](https://marvin1309.github.io/lyndrix-core/)
+Lyndrix Core ist das Fundament für moderne, modulare Unternehmensanwendungen. Basierend auf einer leistungsstarken Kombination aus **FastAPI** und **NiceGUI** bietet es eine nahtlose Integration von Backend-Services und Benutzeroberflächen. Durch die tiefe Verankerung von **HashiCorp Vault** und einem dynamischen, GitHub-basierten **Plugin-System** ist Lyndrix Core darauf ausgelegt, maximale Sicherheit mit grenzenloser Skalierbarkeit zu vereinen.
 
 ---
 
-## Core Features
+## ✨ Enterprise-Grade Features
 
-- **Modular Plugin Architecture:** The system is completely divided into independent plugins that communicate with each other via a central Event Bus.
-- **GitOps SSOT Synchronization:** Automatic import, parsing, and write-back (commit & push) of `service.yml` definitions from GitLab repositories.
-- **Zero-Trust Security (HashiCorp Vault):** Sensitive data (GitLab PATs, Webhooks) are never stored locally in the database. Instead, they are dynamically retrieved from a HashiCorp Vault / OpenBao instance.
-- **Change Management:** Integrated approval workflow. Changes to the infrastructure or applications first generate a "Change Request" before they are provisioned (or pushed to Git).
-- **Hybrid Editor:** The UI offers both user-friendly forms for standard settings and a dynamic JSON/YAML tree editor for complex configurations.
-- **Event-Driven Notifications:** Automatic alerts (e.g., via Discord Webhooks) for new change requests or system events.
+### 🛡️ Integrierte Sicherheit & Secrets Management (HashiCorp Vault)
+
+Sicherheit ist nicht nur ein Add-on, sondern Kernbestandteil. Lyndrix Core verfügt über einative **HashiCorp Vault**-Integration:
+
+- **Automatisches Setup & Unseal:** Verschlüsselte Key-Stores (`vault_keys.enc`) ermöglichen Zero-Touch-Restarts mit Auto-Unseal über den `LYNDRIX_MASTER_KEY`.
+- **Isolierte Secret Engines:** Automatische Provisionierung eines eigenen KV v2 Secret-Stores (`lyndrix/`).
+- **State-of-the-Art Crypto:** Passwort-Hashing via Argon2 (`argon2-cffi`) und In-Transit-Verschlüsselung mit PyCryptodome.
+
+### 🧩 Dynamisches Plugin-Ökosystem
+
+Erweitere die Funktionalität im laufenden Betrieb ohne Systemausfälle:
+
+- **Marketplace & GitHub Integration:** Lade und installiere Plugins direkt aus GitHub-Repositories als `.zip`-Archive.
+- **Automatisches Dependency Management:** Isolierte Installation von Plugin-Abhängigkeiten (`pip install -r requirements.txt`) während der Laufzeit.
+- **Hot-Loading:** Der interne `ModuleManager` integriert neue Komponenten nahtlos in das bestehende System.
+
+### ⚡ Hochleistungs-Architektur
+
+- **Event-Driven Design:** Ein globaler, asynchroner Event-Bus (`bus.subscribe` / `bus.emit`) sorgt für extrem lose Kopplung der Module (z.B. Vault-Status an Plugin-Lader).
+- **Boot-Sequence & Middleware:** Ein "Türsteher" (HTTP-Middleware) blockiert API- und UI-Zugriffe sicher, bis Systemkomponenten (wie Datenbank und Vault) vollständig geladen und authentifiziert sind.
+- **FastAPI & NiceGUI:** Asynchrone API-Endpunkte gepaart mit reaktiven, Python-gesteuerten Web-UIs.
 
 ---
 
-## System Architecture & Plugins
+## 🏗️ Systemarchitektur & Tech-Stack
 
-The system currently consists of the following core modules:
-
-- `lyndrix_core_ui`: Dashboard, Darkmode engine, and global system settings.
-- `application_manager`: The CMDB view for linking applications with servers and firewalls.
-- `server_manager`: Management of hardware, VM, and LXC nodes.
-- `change_manager`: Central approval instance for all system changes.
-- `secrets_manager`: The direct integration to HashiCorp Vault (Service Locator Pattern).
-- `ssot_app_importer`: Connects Lyndrix with the GitLab Application-Definitions group.
-- `ssot_infra_importer`: Dynamically pulls server nodes from the IaC Controller (Ansible/Terraform).
-- `discord_notifier`: Sends approval requests as embeds to Discord.
+- **Core Framework:** Python 3.10+, FastAPI, Uvicorn, NiceGUI
+- **Datenbank:** MariaDB / MySQL (via SQLAlchemy 2.0 & PyMySQL)
+- **Sicherheit:** HashiCorp Vault (hvac), Argon2
+- **Infrastruktur:** Docker & Docker Compose (Production-Ready)
 
 ---
 
-## Installation & Setup
+## 🚀 Quickstart (Production via Docker)
 
-### Prerequisites
+Das System ist vollständig containerisiert und für den sofortigen Einsatz via Docker Compose vorbereitet.
 
-- Docker & Docker Compose
-- GitLab (for SSOT repositories)
-
-### 1. Development Environment (Local)
-
-Since Lyndrix Core relies on a MariaDB database and a HashiCorp Vault instance, the recommended way to run it locally is via the provided Docker Compose setup. This ensures all dependencies are correctly configured.
+### 1. Repository klonen
 
 ```bash
-# 1. Clone repository
-git clone https://github.com/marvin1309/lyndrix-core.git
+git clone https://github.com/dein-user/lyndrix-core.git
 cd lyndrix-core
 
-# 2. Start the Development Stack
-# This starts Lyndrix (Hot-Reload), MariaDB, and Vault
-docker compose -f docker/docker-compose.dev.yml up -d --build
 ```
 
-The web interface will then be accessible at `http://localhost:8081`.
+### 2. Umgebungsvariablen konfigurieren
 
-- **Vault UI:** `http://localhost:8200`
+Erstelle eine `.env.prod` Datei im Root-Verzeichnis (siehe `docker-compose.prod.yml`). Diese Variablen steuern auch das Setup von MariaDB:
 
-### 2. Production Deployment
+```env
+# App Config
+APP_NAME=Lyndrix Core
+APP_TITLE=LYNDRIX - PRODUCTION
+ENV_TYPE=prod
+LOG_LEVEL=INFO
+STORAGE_SECRET=dein_sehr_sicheres_cookie_secret
 
-For production environments, use the pre-built Docker image. Below is a reference `docker-compose.yml` (including Traefik labels) for a secure deployment.
+# Database
+DB_HOST=db
+DB_NAME=lyndrix_db
+DB_USER=admin
+DB_PASSWORD=super_secret_db_pass
+DB_ROOT_PASSWORD=super_secret_root_pass
 
-```yaml
-version: "3.8"
+# Security & Vault
+LYNDRIX_MASTER_KEY=optionaler_auto_unseal_key
+VAULT_URL=http://vault:8200
 
-services:
-  lyndrix:
-    image: ghcr.io/marvin1309/lyndrix-core:latest
-    container_name: lyndrix-core
-    restart: unless-stopped
-    ports:
-      - "8081:8081"
-    environment:
-      - DB_USER=admin
-      - DB_PASSWORD=secret
-      - DB_HOST=lyndrix-db
-      - DB_NAME=lyndrix_db
-      - VAULT_URL=http://lyndrix-vault:8200
-      - LYNDRIX_MASTER_KEY=your_secure_master_key_here
-      - ENV_TYPE=prod
-    volumes:
-      - ./plugins:/app/plugins
-      - ./secure_data:/data/security
-    depends_on:
-      db:
-        condition: service_healthy
-      vault:
-        condition: service_started
-    networks:
-      - secured
-      - stack_internal
-    # Optional: Traefik Labels
-    labels:
-      traefik.enable: "true"
-      traefik.http.routers.lyndrix.rule: "Host(`lyndrix.your-domain.com`)"
-      traefik.http.routers.lyndrix.entrypoints: "websecure"
-      traefik.http.routers.lyndrix.tls: "true"
-
-  db:
-    image: mariadb:10.11
-    container_name: lyndrix-db
-    restart: unless-stopped
-    networks:
-      - stack_internal
-    environment:
-      MARIADB_ROOT_PASSWORD: secret
-      MARIADB_DATABASE: lyndrix_db
-      MARIADB_USER: admin
-      MARIADB_PASSWORD: secret
-    volumes:
-      - ./db_data:/var/lib/mysql
-    healthcheck:
-      test:
-        [
-          "CMD",
-          "mariadb-admin",
-          "ping",
-          "-h",
-          "localhost",
-          "-uadmin",
-          "-psecret",
-        ]
-      interval: 10s
-      timeout: 5s
-      retries: 5
-
-  vault:
-    image: hashicorp/vault:latest
-    container_name: lyndrix-vault
-    restart: unless-stopped
-    cap_add:
-      - IPC_LOCK
-    environment:
-      VAULT_LOCAL_CONFIG: '{"storage": {"file": {"path": "/vault/file"}}, "listener": {"tcp": {"address": "0.0.0.0:8200", "tls_disable": 1}}, "ui": true}'
-      VAULT_API_ADDR: "http://lyndrix-vault:8200"
-    networks:
-      - secured
-      - stack_internal
-    volumes:
-      - ./vault_data:/vault/file
-    command: server
-
-networks:
-  secured:
-    external: true
-    name: "services-secured"
-  stack_internal:
-    driver: "bridge"
 ```
+
+### 3. Container starten
+
+Das System wird gebaut und mitsamt MariaDB und HashiCorp Vault hochgefahren:
+
+```bash
+docker-compose -f docker/docker-compose.prod.yml up -d --build
+
+```
+
+### 4. UI aufrufen
+
+Sobald die Container laufen, ist die Oberfläche standardmäßig unter `http://localhost:80` (bzw. auf Port 8081 im Dev-Setup) erreichbar.
+Beim allerersten Start leitet dich das System automatisch durch das **Vault Setup** (`/setup`), generiert die Master-Keys und bootet anschließend in das Dashboard.
 
 ---
 
-## Configuration (Day-2 Operations)
+## ⚙️ Modul-Übersicht
 
-Plugin configuration is **no longer** done in the code, but directly through the web interface:
+Die Architektur folgt einem strengen Domain-Driven Design innerhalb des `app/core/components/` Verzeichnisses:
 
-1. Navigate to **System -> Einstellungen (Settings)** in Lyndrix.
-2. Expand the **Secrets Manager**, enter your Vault URL (`http://127.0.0.1:8200`) and credentials, and click "Save".
-3. Expand the **SSOT App Manager**, enter the GitLab URL, and provide your Personal Access Token (this will be securely encrypted and stored in the Vault!).
-4. The **Discord Notifier** webhook can also be securely stored in the Vault from here.
+- `auth/`: Authentifizierung, User-Sessions, Session-Storage und Hashing.
+- `boot/`: Steuerung der Boot-Sequenz und Sperrung der Applikation während Ladevorgängen.
+- `dashboard/`: Zentrale Einstiegsseite nach erfolgreichem Login.
+- `database/`: SQLAlchemy-Verbindungsmanagement und ORM-Logik.
+- `plugins/`: Verwaltung, Installation und Laden externer Funktionsbausteine über die GitHub-API.
+- `system/`: Monitoring und Logs.
+- `vault/`: Kryptographie, Unseal-Routinen und Initialisierung der Vault-Instanz.
 
 ---
 
-_Developed for scalable Homelabs and Enterprise Environments._
+## 🛡️ Wartung & Sicherheitshinweise
+
+- **Vault Keys:** Das File `vault_keys.enc` (im Docker-Volume `lyndrix_secure_data`) ist lebenswichtig. Ohne dieses File oder den `LYNDRIX_MASTER_KEY` können die verschlüsselten Daten nach einem Neustart **nicht** wiederhergestellt werden. Bitte richte regelmäßige Backups für das Volume ein.
+- **Maintenance Mode:** Ein integrierter Wartungsmodus kann jederzeit getriggert werden, um Usern einen Overlay anzuzeigen (`ui.maintenance`), während Background-Prozesse ablaufen.
+
+---
+
+_Entwickelt für Stabilität, Erweiterbarkeit und kompromisslose Sicherheit._
