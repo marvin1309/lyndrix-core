@@ -10,9 +10,6 @@ services:
       - ../.dev/storage:/data/storage
       - ../app:/app
       - ../.dev/secure_data:/data/security
-      - ../.dev/storage:/data/storage
-
-      # FIX: Wir mounten das Skript explizit rein, damit es trotz Volume-Mount da ist!
       - ./entrypoint.sh:/app/entrypoint.sh
       - ../../lyndrix-iac-orchestrator:/app/plugins/iac_orchestrator
       - /var/run/docker.sock:/var/run/docker.sock

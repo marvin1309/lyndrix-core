@@ -16,50 +16,14 @@ log = get_logger("UI:Layout")
 # ==========================================
 # ZENTRALE SETTINGS POPUP LOGIK
 # ==========================================
-def open_plugin_settings_modal(manifest_id: str):
-    """Sucht das Modul in der Registry und öffnet dessen Settings-UI in einem gestylten Dialog."""
-    entry = module_manager.registry.get(manifest_id)
-    if not entry or entry.get("status") != "active":
-        ui.notify('Fehler: Modul ist nicht aktiv oder nicht gefunden.', type='negative')
-        return
-
-    manifest = entry["manifest"]
-    mod = entry["module"]
-    ctx = entry["context"]
-
-    if not hasattr(mod, 'render_settings_ui'):
-        ui.notify(f'{manifest.name} hat keine konfigurierbaren Einstellungen.', type='info')
-        return
-
-    # THEME.PY INTEGRATION: Glass Card, exakt wie in settings_ui.py
-    # p-0 entfernt das Standard-Padding, damit wir den Header farblich absetzen können
-    with ui.dialog() as settings_dialog, ui.card().classes(f'w-full max-w-xl p-0 overflow-hidden {UIStyles.CARD_GLASS}'):
-        
-        # Header-Bereich (Optik wie der Expansion-Header in den Settings)
-        with ui.row().classes('w-full justify-between items-center p-4 border-b border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50'):
-            with ui.row().classes('items-center gap-3'):
-                ui.icon(manifest.icon, size='24px').classes('text-primary')
-                with ui.column().classes('gap-0'):
-                    ui.label(manifest.name).classes('font-bold text-lg leading-tight text-slate-800 dark:text-zinc-100')
-                    ui.label(f'v{manifest.version}').classes('text-xs font-mono text-slate-500 dark:text-zinc-400')
-            
-            ui.button(icon='close', on_click=settings_dialog.close).props('flat round dense').classes('text-slate-500 hover:text-slate-800 dark:hover:text-white transition-colors')
-        
-        # Content-Bereich für das eigentliche Plugin-Formular
-        with ui.scroll_area().classes('w-full max-h-[70vh] p-6'):
-            try:
-                mod.render_settings_ui(ctx)
-            except Exception as e:
-                ui.label(f"Fehler in Plugin-UI: {str(e)}").classes('text-red-500 text-xs')
-
-    settings_dialog.open()
 
 # ==========================================
 # RESTLICHE LAYOUT FUNKTIONEN
 # ==========================================
 def trigger_reload():
-    ui.notify('System is rebooting...', type='ongoing', spinner=True)
-    bus.emit('system:reload', {})
+    """Triggers a client-side page reload."""
+    ui.notify('Refreshing UI...', type='info')
+    ui.run_javascript('window.location.reload();')
 
 def logout():
     app.storage.user.clear()
@@ -73,6 +37,11 @@ def get_nav_items():
     manifests = module_manager.get_manifests()
     
     for manifest in manifests:
+        # NEW: Only show active modules in the navigation
+        entry = module_manager.registry.get(manifest.id, {})
+        if entry.get("status") != "active":
+            continue
+
         route = getattr(manifest, 'ui_route', None)
         if not route: continue
 
@@ -89,6 +58,41 @@ def get_nav_items():
 
     core_items.append({'id': 'core.settings', 'label': 'Settings', 'icon': 'settings', 'target': '/settings', 'type': 'CORE'})
     return core_items, plugin_items
+
+def open_plugin_settings_modal(manifest_id: str):
+    """Sucht das Modul in der Registry und öffnet dessen Settings-UI in einem gestylten Dialog."""
+    entry = module_manager.registry.get(manifest_id)
+    if not entry or entry.get("status") != "active":
+        ui.notify('Fehler: Modul ist nicht aktiv oder nicht gefunden.', type='negative')
+        return
+
+    manifest = entry["manifest"]
+    mod = entry["module"]
+    ctx = entry["context"]
+
+    if not hasattr(mod, 'render_settings_ui'):
+        ui.notify(f'{manifest.name} hat keine konfigurierbaren Einstellungen.', type='info')
+        return
+
+    with ui.dialog() as settings_dialog, ui.card().classes(f'w-full max-w-xl p-0 overflow-hidden {UIStyles.CARD_GLASS}'):
+        
+        with ui.row().classes('w-full justify-between items-center p-4 border-b border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50'):
+            with ui.row().classes('items-center gap-3'):
+                ui.icon(manifest.icon, size='24px').classes('text-primary')
+                with ui.column().classes('gap-0'):
+                    ui.label(manifest.name).classes('font-bold text-lg leading-tight text-slate-800 dark:text-zinc-100')
+                    ui.label(f'v{manifest.version}').classes('text-xs font-mono text-slate-500 dark:text-zinc-400')
+            
+            ui.button(icon='close', on_click=settings_dialog.close).props('flat round dense').classes('text-slate-500 hover:text-slate-800 dark:hover:text-white transition-colors')
+        
+        with ui.scroll_area().classes('w-full max-h-[70vh] p-6'):
+            try:
+                mod.render_settings_ui(ctx)
+            except Exception as e:
+                ui.label(f"Fehler in Plugin-UI: {str(e)}").classes('text-red-500 text-xs')
+
+    settings_dialog.open()
+
 
 def main_layout(page_title: str):
     def decorator(fn):
@@ -109,6 +113,10 @@ def main_layout(page_title: str):
                 if e.value: dark.enable()
                 else: dark.disable()
                 ui.run_javascript(f"document.documentElement.classList.toggle('dark', {'true' if e.value else 'false'});")
+
+            @bus.subscribe("ui:needs_refresh")
+            def on_ui_refresh(payload):
+                trigger_reload()
 
             attach_maintenance_overlay()
             core_items, plugin_items = get_nav_items()
@@ -148,7 +156,7 @@ def main_layout(page_title: str):
                         ui.label(page_title).classes(UIStyles.LABEL_MINI)
                         with ui.button(icon='account_circle').props('flat round text-color=current'):
                             with ui.menu().classes(UIStyles.MENU_CONTAINER):
-                                ui.menu_item('Restart Engine', on_click=trigger_reload).classes(UIStyles.MENU_ITEM)
+                                ui.menu_item('Refresh UI', on_click=trigger_reload).classes(UIStyles.MENU_ITEM)
                                 ui.menu_item('Logout', on_click=logout).classes(UIStyles.MENU_ITEM)
 
             # --- SIDEBAR ---

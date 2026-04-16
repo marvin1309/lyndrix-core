@@ -1,5 +1,3 @@
-# app/main.py
-
 import os
 import sys
 from fastapi import FastAPI, Request
@@ -10,10 +8,10 @@ from config import settings
 from core.bus import bus
 from core.logger import setup_logging, get_logger
 
-# --- DER FIX: Nur noch aus der Fassade laden! ---
+# --- FIX: Load exclusively from the facade ---
 from core.services import vault_instance, db_instance, auth_service, boot_service
 
-# --- Die Routen-Registrierungen ---
+# --- Route Registrations ---
 from core.components.auth.ui.routes import register_auth_routes
 from core.components.settings.ui.routes import register_settings_routes
 from core.components.vault.ui.routes import register_vault_routes
@@ -22,19 +20,19 @@ from core.components.dashboard.ui.routes import register_dashboard_routes
 # --- Global UI ---
 from ui.theme import apply_theme
 from ui.maintenance import attach_maintenance_overlay
-# ... (restliche main.py wie vorhin)
+
 setup_logging()
 app = FastAPI()
 log = get_logger("Core:Main")
 
 # ==========================================
-# DER TÜRSTEHER (Middleware)
+# HTTP MIDDLEWARE (Interceptor)
 # ==========================================
 @app.middleware("http")
 async def boot_interceptor(request: Request, call_next):
-    allowed_prefixes = ["/_nicegui", "/static", "/_pywebview", "/favicon.ico"]
+    allowed_prefixes = ["/_nicegui", "/static", "/_pywebview", "/favicon.ico", "/setup", "/unseal"]
     
-    # Nutzt jetzt den boot_service aus dem neuen Pfad
+    # Utilizing boot_service from the new path
     if getattr(boot_service, 'is_booting', True):
         if request.url.path == "/" or any(request.url.path.startswith(p) for p in allowed_prefixes):
             return await call_next(request)
@@ -42,12 +40,8 @@ async def boot_interceptor(request: Request, call_next):
             
     return await call_next(request)
 
-@bus.subscribe("system:reload")
-def handle_reload(payload):
-    os.execv(sys.executable, [sys.executable] + sys.argv)
-
 # ==========================================
-# ROOT ROUTING (Der Dirigent)
+# ROOT ROUTING (Entry Point)
 # ==========================================
 @ui.page('/')
 def entry_point():
@@ -57,7 +51,7 @@ def entry_point():
         attach_maintenance_overlay()
         return
 
-    # 1. Vault Status prüfen (via vault_instance aus core/services.py)
+    # 1. Check Vault Status
     if vault_instance.ui_state == "needs_init":
         ui.navigate.to('/setup')
         return
@@ -66,7 +60,7 @@ def entry_point():
         ui.navigate.to('/unseal')
         return
 
-    # 2. Boot-Sperre (Ladescreen)
+    # 2. Boot Lock (Loading Screen)
     if boot_service.is_booting or vault_instance.ui_state == "loading":
         ui.query('body').style('background-color: #09090b;')
         with ui.column().classes('w-full h-screen items-center justify-center gap-4'):
@@ -76,17 +70,16 @@ def entry_point():
         ui.timer(1.0, lambda: ui.navigate.to('/'), once=True)
         return
 
-    # 3. System ist ready!
+    # 3. System is ready
     if nicegui_app.storage.user.get('authenticated', False):
         ui.navigate.to('/dashboard')
     else:
         ui.navigate.to('/login')
 
 # ==========================================
-# SYSTEM START & REGISTRIERUNG
+# SYSTEM START & REGISTRATION
 # ==========================================
 
-# Wir registrieren alle Seiten der Komponenten
 register_auth_routes()
 register_settings_routes()
 register_vault_routes()

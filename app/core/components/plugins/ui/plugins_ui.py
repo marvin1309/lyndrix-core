@@ -138,17 +138,13 @@ def render_plugins_page():
                                                             async def delete_plugin_inner():
                                                                 mod_entry = module_manager.registry.get(manifest.id, {})
                                                                 mod = mod_entry.get("module")
-                                                                
                                                                 if mod:
                                                                     import os
                                                                     folder_name = os.path.basename(os.path.dirname(mod.__file__))
-                                                                    if await plugin_service.uninstall_plugin(folder_name):
-                                                                        module_manager.unload_module(manifest.id)
-                                                                        ui.notify(f'Plugin {folder_name} gelöscht.', type='positive')
-                                                                        settings_dialog.close()
-                                                                        ui.navigate.to('/settings')
-                                                                    else:
-                                                                        ui.notify('Löschen fehlgeschlagen.', type='negative')
+                                                                    # The service will emit an event that the manager will catch.
+                                                                    await plugin_service.uninstall_plugin(manifest.id, folder_name)
+                                                                    ui.notify(f'Plugin {folder_name} uninstalled. Please reload the page.', type='positive')
+                                                                    settings_dialog.close()
                                                                 else:
                                                                     ui.notify('Fehler: Modul nicht geladen. Bitte erst aktivieren.', type='warning')
 

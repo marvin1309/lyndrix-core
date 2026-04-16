@@ -1,7 +1,9 @@
 import os
 import sys
 import importlib
+from pathlib import Path
 import inspect
+import subprocess
 import asyncio
 from core.logger import get_logger
 from core.bus import bus
@@ -16,7 +18,8 @@ class ModuleManager:
         self.registry = {}
         current_file_path = os.path.abspath(__file__)
         self.base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file_path)))))
-        
+        # Subscribe to filesystem change events from the PluginService
+        bus.subscribe("plugin:files_changed")(self._handle_plugin_change)
 
 
     def load_all(self):
@@ -60,6 +63,23 @@ class ModuleManager:
             if os.path.isdir(item_path):
                 entrypoint_path = os.path.join(item_path, "entrypoint.py")
                 
+                # --- SELF-BOOTSTRAP DEPENDENCIES ---
+                # If a plugin has requirements.txt but no vendor folder, install them now.
+                # This blocks startup but ensures dependencies are ready before import.
+                if is_plugin:
+                    req_file = Path(item_path) / "requirements.txt"
+                    vendor_dir = Path(item_path) / "vendor"
+                    if req_file.exists() and not vendor_dir.exists():
+                        log.info(f"VENDORS: Bootstrapping dependencies for '{item}'...")
+                        try:
+                            subprocess.run(
+                                [sys.executable, "-m", "pip", "install", "--target", str(vendor_dir), "-r", str(req_file)],
+                                capture_output=True, text=True, check=True
+                            )
+                            log.info(f"VENDORS: Bootstrap complete for '{item}'.")
+                        except (subprocess.CalledProcessError, FileNotFoundError) as e:
+                            log.error(f"PIP_ERROR: Failed to bootstrap dependencies for '{item}': {getattr(e, 'stderr', str(e))}")
+
                 if not os.path.exists(entrypoint_path):
                     continue
                 
@@ -80,6 +100,19 @@ class ModuleManager:
     def load_module(self, module_name: str, is_plugin: bool = True):
         prefix = "plugins" if is_plugin else "core.components"
         full_module_path = f"{prefix}.{module_name}.entrypoint"
+        
+        # --- VENDORING: Add plugin's private dependency folder to the Python path ---
+        vendor_path_str = None
+        path_added = False
+        if is_plugin:
+            plugin_dir_path = Path(self.base_path) / prefix.replace('.', '/') / module_name
+            vendor_path = plugin_dir_path / "vendor"
+            if vendor_path.exists() and vendor_path.is_dir():
+                vendor_path_str = str(vendor_path)
+                if vendor_path_str not in sys.path:
+                    log.debug(f"VENDORS: Adding {vendor_path_str} to sys.path for '{module_name}'")
+                    sys.path.insert(0, vendor_path_str)
+                    path_added = True
         
         try:
             module = importlib.import_module(full_module_path)
@@ -116,7 +149,23 @@ class ModuleManager:
 
         except Exception as e:
             log.error(f"LOAD_ERROR: Failed to load '{module_name}': {e}")
+            # --- VENDORING: Clean up sys.path on a failed import ---
+            if path_added and vendor_path_str in sys.path:
+                log.debug(f"VENDORS: Cleaning up failed import path {vendor_path_str}")
+                sys.path.remove(vendor_path_str)
             return False
+
+    async def _handle_plugin_change(self, payload: dict):
+        """Reacts to install/uninstall events from the PluginService."""
+        action = payload.get("action")
+        if action == "install":
+            module_name = payload.get("name")
+            log.info(f"MANAGER: Received install event for '{module_name}'. Loading module...")
+            self.load_module(module_name, is_plugin=True)
+            await self._activate_saved_plugins() # Re-check DB state for the new plugin
+        elif action == "uninstall":
+            module_id = payload.get("id")
+            self.unload_module(module_id)
 
     def _execute_setup(self, module_id):
         """Helper to safely execute the module's setup function."""
@@ -200,24 +249,67 @@ class ModuleManager:
         # 3. Boot it up if newly activated
         if active:
             self._execute_setup(module_id)
+            bus.emit("ui:needs_refresh", {"reason": f"Plugin {module_id} activated."})
         else:
-            log.warning(f"MODULE: '{module_id}' disabled. Restart container for full cleanup.")
+            # "Soft" unload: remove UI and call teardown, but keep module in memory.
+            self._teardown_ui(module_id)
+            entry = self.registry.get(module_id)
+            if entry and hasattr(entry["module"], 'teardown'):
+                log.info(f"TEARDOWN: Executing teardown function for '{module_id}'")
+                teardown_func = entry["module"].teardown
+                if inspect.iscoroutinefunction(teardown_func):
+                    asyncio.create_task(teardown_func(entry["context"]))
+                else:
+                    teardown_func(entry["context"])
+
+            bus.emit("ui:needs_refresh", {"reason": f"Plugin {module_id} deactivated."})
             
         return True
 
     def get_manifests(self):
         return [entry["manifest"] for entry in self.registry.values()]
 
+    def _teardown_ui(self, module_id: str):
+        """Removes a module's UI components without unloading the code."""
+        if module_id not in self.registry: return
+        from main import app as fastapi_app
+        from nicegui import ui
+        manifest = self.registry[module_id]["manifest"]
+        if manifest.ui_route:
+            log.info(f"TEARDOWN: Removing UI route '{manifest.ui_route}' for '{module_id}'")
+            try:
+                ui.remove_page(manifest.ui_route)
+                fastapi_app.routes = [route for route in fastapi_app.routes if route.path != manifest.ui_route]
+            except Exception as e:
+                log.error(f"TEARDOWN_ERROR: Failed to remove UI for '{module_id}': {e}")
+
     def unload_module(self, module_id: str):
         if module_id not in self.registry:
             return False
-        
+
+        self._teardown_ui(module_id)
         entry = self.registry[module_id]
-        module_name = entry["module"].__name__
+
+        # --- VENDORING: Clean up the plugin's private dependency path ---
+        if entry["manifest"].type == "PLUGIN":
+            try:
+                plugin_dir_path = Path(entry["module"].__file__).parent
+                vendor_path = plugin_dir_path / "vendor"
+                vendor_path_str = str(vendor_path)
+                if vendor_path.exists() and vendor_path_str in sys.path:
+                    log.debug(f"VENDORS: Removing {vendor_path_str} from sys.path for '{module_id}'")
+                    sys.path.remove(vendor_path_str)
+            except Exception as e:
+                log.warning(f"VENDORS: Could not clean up sys.path for '{module_id}': {e}")
+
+        # --- ROBUST UNLOAD: Purge all submodules of the plugin from memory ---
+        base_package_name = ".".join(entry["module"].__name__.split('.')[:-1])
+        modules_to_delete = [m for m in sys.modules if m.startswith(base_package_name)]
+        
         del self.registry[module_id]
         
-        if module_name in sys.modules:
-            del sys.modules[module_name]
+        for m in modules_to_delete:
+            del sys.modules[m]
             
         log.info(f"UNLOAD: Module '{module_id}' unloaded from memory.")
         return True
@@ -231,17 +323,14 @@ class ModuleManager:
         module_folder = entry["module"].__name__.split('.')[-2]
 
         self.unload_module(module_id)
-        await asyncio.sleep(0.2)
+        await asyncio.sleep(0.1) # Brief pause to let things settle
         
-        # 1. Load the module back into RAM
         success = self.load_module(module_folder, is_plugin=is_plugin)
         
-        # 2. CRITICAL FIX: The Hot-Reload State Check
-        # If the DB is already connected, we manually trigger the state check
-        # instead of waiting for the boot sequence event.
         if success and is_plugin and db_instance.is_connected:
             await self._activate_saved_plugins()
             
+        bus.emit("ui:needs_refresh", {"reason": f"Plugin {module_id} reloaded."})
         return success
 
 module_manager = ModuleManager()
