@@ -110,17 +110,12 @@ class PluginService:
             # 4. Dependency Management
             await self._install_requirements(plugin_path)
 
-            # 5. INTEGRATION: Notify the ModuleManager to load the new plugin
-            from core.components.plugins.logic.manager import module_manager
-            success = module_manager.load_module(safe_repo_name, is_plugin=True)
-
-            if success:
-                log.info(f"SUCCESS: Plugin '{repo}' is now installed and active")
-                bus.emit("plugin:installed", {"repo": repo, "path": str(plugin_path)})
-                return True
-            else:
-                log.error(f"INTEGRATION_ERROR: Plugin files extracted but manager failed to load '{safe_repo_name}'")
-                return False
+            # 5. INTEGRATION: Announce the change via the event bus.
+            # The ModuleManager will be listening for this.
+            bus.emit("plugin:files_changed", {"action": "install", "name": safe_repo_name})
+            log.info(f"SUCCESS: Plugin files for '{repo}' are in place. Notifying system.")
+            bus.emit("plugin:installed", {"repo": repo, "path": str(plugin_path)})
+            return True
 
         except Exception as e:
             log.error(f"INSTALL_ERROR: Installation failed for {repo}: {str(e)}", exc_info=True)
@@ -137,19 +132,25 @@ class PluginService:
     async def _install_requirements(self, plugin_path: Path):
         req_file = plugin_path / "requirements.txt"
         if req_file.exists():
-            log.info(f"DEPENDENCIES: Installing requirements for {plugin_path.name}")
+            log.info(f"DEPENDENCIES: Installing requirements for {plugin_path.name} into private vendor directory...")
+            vendor_dir = plugin_path / "vendor"
+            vendor_dir.mkdir(exist_ok=True)
+
             process = await asyncio.create_subprocess_exec(
-                sys.executable, "-m", "pip", "install", "-r", str(req_file),
+                sys.executable, "-m", "pip", "install",
+                "--target", str(vendor_dir),
+                "-r", str(req_file),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
             stdout, stderr = await process.communicate()
             if process.returncode != 0:
                 log.error(f"PIP_ERROR: Dependency installation failed: {stderr.decode()}")
+                shutil.rmtree(vendor_dir, ignore_errors=True)
             else:
-                log.info("SUCCESS: All dependencies resolved")
+                log.info("SUCCESS: All dependencies resolved into private vendor directory.")
 
-    async def uninstall_plugin(self, repo_name: str):
+    async def uninstall_plugin(self, module_id: str, repo_name: str):
         """Löscht den Plugin-Ordner physisch."""
         plugin_path = self.plugin_dir / repo_name
         if not plugin_path.exists():
@@ -158,6 +159,8 @@ class PluginService:
         
         try:
             shutil.rmtree(plugin_path)
+            # Announce the successful deletion so the ModuleManager can unload it from memory.
+            bus.emit("plugin:files_changed", {"action": "uninstall", "id": module_id})
             log.info(f"SUCCESS: Plugin files for '{repo_name}' removed.")
             return True
         except Exception as e:
