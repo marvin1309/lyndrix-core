@@ -164,7 +164,7 @@ def main_layout(page_title: str):
                 with ui.column().classes('w-full h-full no-wrap'):
                     with ui.column().classes('w-full flex-grow overflow-y-auto'):
                         if plugin_items:
-                            ui.label("User Plugins").classes(UIStyles.NAV_CATEGORY)
+                            ui.label("Services").classes(UIStyles.NAV_CATEGORY)
                             with ui.column().classes('w-full gap-1'):
                                 for item in plugin_items:
                                     is_active = (page_title == item['label'])
