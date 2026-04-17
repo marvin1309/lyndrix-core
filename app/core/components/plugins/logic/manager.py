@@ -3,7 +3,10 @@ import sys
 import importlib
 from pathlib import Path
 import inspect
+import hashlib
+import shutil
 import subprocess
+import tempfile
 import asyncio
 from core.logger import get_logger
 from core.bus import bus
@@ -69,16 +72,36 @@ class ModuleManager:
                 if is_plugin:
                     req_file = Path(item_path) / "requirements.txt"
                     vendor_dir = Path(item_path) / "vendor"
-                    if req_file.exists() and not vendor_dir.exists():
-                        log.info(f"VENDORS: Bootstrapping dependencies for '{item}'...")
-                        try:
-                            subprocess.run(
-                                [sys.executable, "-m", "pip", "install", "--target", str(vendor_dir), "-r", str(req_file)],
-                                capture_output=True, text=True, check=True
-                            )
-                            log.info(f"VENDORS: Bootstrap complete for '{item}'.")
-                        except (subprocess.CalledProcessError, FileNotFoundError) as e:
-                            log.error(f"PIP_ERROR: Failed to bootstrap dependencies for '{item}': {getattr(e, 'stderr', str(e))}")
+                    receipt_file = vendor_dir / ".receipt"
+
+                    if req_file.exists():
+                        with open(req_file, 'rb') as f:
+                            current_checksum = hashlib.sha256(f.read()).hexdigest()
+                        
+                        last_install_checksum = ""
+                        if receipt_file.exists():
+                            with open(receipt_file, 'r') as f:
+                                last_install_checksum = f.read().strip()
+
+                        if current_checksum != last_install_checksum:
+                            log.info(f"VENDORS: Requirements changed for '{item}'. Re-installing dependencies...")
+                            if vendor_dir.exists():
+                                shutil.rmtree(vendor_dir)
+                            
+                            vendor_dir.mkdir()
+                            try:
+                                subprocess.run(
+                                    [sys.executable, "-m", "pip", "install", "--target", str(vendor_dir), "-r", str(req_file)],
+                                    capture_output=True, text=True, check=True, encoding='utf-8'
+                                )
+                                with open(receipt_file, 'w') as f:
+                                    f.write(current_checksum)
+                                log.info(f"VENDORS: Bootstrap complete for '{item}'.")
+                            except (subprocess.CalledProcessError, FileNotFoundError) as e:
+                                stderr = getattr(e, 'stderr', str(e))
+                                log.error(f"PIP_ERROR: Failed to bootstrap dependencies for '{item}': {stderr}")
+                                if vendor_dir.exists():
+                                    shutil.rmtree(vendor_dir) # Clean up failed install
 
                 if not os.path.exists(entrypoint_path):
                     continue

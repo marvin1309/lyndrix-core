@@ -69,7 +69,12 @@ class VaultService:
                         except:
                             log.error("ERROR: Token restoration failed (Wrong Master Key?)")
 
-                await self._ensure_lyndrix_mount()
+                mount_success = await self._ensure_lyndrix_mount()
+                if not mount_success:
+                    log.error("CRITICAL: Vault token is invalid or lacks permissions. Halting boot sequence for Vault.")
+                    bus.emit("vault:auth_failed", {})
+                    return
+
                 log.info("SUCCESS: Vault is already open and ready.")
                 bus.emit("vault:opened", {})
                 bus.emit("vault:ready_for_data", {}) # Plugins may load now
