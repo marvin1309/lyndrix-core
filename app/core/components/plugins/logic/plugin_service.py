@@ -44,7 +44,24 @@ class PluginService:
             headers["Authorization"] = f"token {token}"
         return headers
 
-    async def install_plugin(self, github_url: str):
+    async def get_plugin_versions(self, github_url: str):
+        try:
+            user, repo = self._extract_repo_info(github_url)
+        except ValueError:
+            return []
+            
+        api_url = f"{self.github_api_base}/{user}/{repo}/tags"
+        try:
+            async with httpx.AsyncClient(headers=self._get_headers(), follow_redirects=True) as client:
+                resp = await client.get(api_url)
+                if resp.status_code == 200:
+                    tags = resp.json()
+                    return [t['name'] for t in tags]
+        except Exception as e:
+            log.error(f"Failed to fetch tags for {github_url}: {e}")
+        return []
+
+    async def install_plugin(self, github_url: str, version: str = "latest"):
         """Downloads, extracts and registers a new plugin from GitHub."""
         user, repo = self._extract_repo_info(github_url)
         
@@ -54,8 +71,8 @@ class PluginService:
         zip_path = self.plugin_dir / f"{repo}.zip"
         extracted_dir = None
         
-        log.info(f"INSTALL: Requesting plugin '{repo}' from {github_url}")
-        bus.emit("plugin:install_started", {"repo": repo})
+        log.info(f"INSTALL: Requesting plugin '{repo}' version '{version}' from {github_url}")
+        bus.emit("plugin:install_started", {"repo": repo, "version": version})
 
         if plugin_path.exists():
             log.warning(f"CONFLICT: Plugin directory '{safe_repo_name}' already exists. Operation aborted")
@@ -76,13 +93,16 @@ class PluginService:
                     default_branch = repo_info.get("default_branch", "main")
                 
                 # 2. Download Archive
-                # Wir nutzen die direkte Web-URL, da der API-Zipball-Endpunkt oft auf ungültige 404-Legacy-URLs leitet
-                zip_url = f"https://github.com/{user}/{repo}/archive/refs/heads/{default_branch}.zip"
+                if version == "latest":
+                    zip_url = f"https://github.com/{user}/{repo}/archive/refs/heads/{default_branch}.zip"
+                else:
+                    zip_url = f"https://github.com/{user}/{repo}/archive/refs/tags/{version}.zip"
+
                 log.info(f"DOWNLOAD: Fetching source from {zip_url}")
                 response = await client.get(zip_url)
                 
                 # Fallback falls der Branch falsch ist (z.B. master statt main)
-                if response.status_code == 404 and default_branch == "main":
+                if response.status_code == 404 and version == "latest" and default_branch == "main":
                     log.info("DOWNLOAD: 'main' not found, trying 'master'...")
                     zip_url = f"https://github.com/{user}/{repo}/archive/refs/heads/master.zip"
                     response = await client.get(zip_url)
