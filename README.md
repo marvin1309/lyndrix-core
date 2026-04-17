@@ -110,7 +110,7 @@ See [Installation & Deployment](docs/deployment.md) for comprehensive production
 |-----------|-----------|---------|
 | **Runtime** | Python | 3.10+ |
 | **Framework** | FastAPI | 0.129.0 |
-| **UI** | NiceGUI | 3.8.0 |
+| **UI** | NiceGUI | 3.9.0 |
 | **Server** | Uvicorn | 0.41.0 |
 | **Database** | MariaDB (SQLAlchemy 2.0) | 2.0.46 |
 | **Secrets** | HashiCorp Vault | 2.1.0+ |
