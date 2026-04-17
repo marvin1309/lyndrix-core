@@ -5,6 +5,10 @@
 		},
 		{
 			"path": "../lyndrix-iac-orchestrator"
+		},
+		{
+			"name": "lyndrix-git-manager",
+			"path": "../lyndrix-git-manager"
 		}
 	],
 	"settings": {

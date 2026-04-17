@@ -54,3 +54,4 @@ vault_data/
 app/plugins/*
 app/plugins
 .cache
+lyndrix-core.code-workspace
