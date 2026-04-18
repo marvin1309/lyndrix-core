@@ -24,6 +24,7 @@ services:
       vault:
         condition: service_started
 
+
   db:
     image: mariadb:10.11
     container_name: lyndrix-db-dev
