@@ -9,6 +9,10 @@
 		{
 			"name": "lyndrix-git-manager",
 			"path": "../lyndrix-git-manager"
+		},
+		{
+			"name": "lyndrix-discord-notifier",
+			"path": "../lyndrix-discord-notifier"
 		}
 	],
 	"settings": {
@@ -18,6 +22,12 @@
 				"envManager": "ms-python.python:venv",
 				"packageManager": "ms-python.python:pip",
 				"workspace": "lyndrix-iac-orchestrator"
+			},
+			{
+				"path": "app/ui/maintenance.py",
+				"envManager": "ms-python.python:venv",
+				"packageManager": "ms-python.python:pip",
+				"workspace": "lyndrix-core"
 			}
 		]
 	}

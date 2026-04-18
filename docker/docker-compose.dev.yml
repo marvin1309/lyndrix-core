@@ -12,6 +12,7 @@ services:
       - ../.dev/secure_data:/data/security
       - ./entrypoint.sh:/app/entrypoint.sh
       - ../../lyndrix-iac-orchestrator:/app/plugins/iac_orchestrator
+      - ../../lyndrix-discord-notifier:/app/plugins/discord_notifier
       - /var/run/docker.sock:/var/run/docker.sock
     env_file:
       - .env.dev

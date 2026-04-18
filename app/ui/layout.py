@@ -10,6 +10,7 @@ from ui.maintenance import attach_maintenance_overlay
 from core.logger import get_logger
 from core.bus import bus
 from core.components.plugins.logic.manager import module_manager
+from core.components.notifications.notification_widget import render_notification_bell
 
 log = get_logger("UI:Layout")
 
@@ -154,10 +155,24 @@ def main_layout(page_title: str):
                             ui.icon('dark_mode', size='14px').classes('text-indigo-400')
 
                         ui.label(page_title).classes(UIStyles.LABEL_MINI)
+                        render_notification_bell()
                         with ui.button(icon='account_circle').props('flat round text-color=current'):
-                            with ui.menu().classes(UIStyles.MENU_CONTAINER):
-                                ui.menu_item('Refresh UI', on_click=trigger_reload).classes(UIStyles.MENU_ITEM)
-                                ui.menu_item('Logout', on_click=logout).classes(UIStyles.MENU_ITEM)
+                            with ui.menu().classes(f'w-64 p-0 flex flex-col {UIStyles.MENU_CONTAINER}'):
+                                with ui.row().classes('w-full items-center p-4 border-b border-zinc-800 bg-zinc-900 shrink-0 gap-3'):
+                                    ui.icon('admin_panel_settings', size='28px').classes('text-indigo-400')
+                                    with ui.column().classes('gap-0'):
+                                        username = app.storage.user.get('username', 'Administrator')
+                                        ui.label(username).classes('text-sm font-bold text-slate-200 tracking-wide capitalize')
+                                        ui.label("System Owner").classes('text-[10px] text-slate-500 uppercase tracking-widest')
+                                
+                                with ui.column().classes('w-full p-2 gap-1'):
+                                    with ui.button(on_click=trigger_reload).props('flat dense').classes('w-full justify-start px-3 py-2 text-slate-300 hover:bg-zinc-800 hover:text-white rounded transition-colors'):
+                                        ui.icon('refresh', size='16px').classes('mr-2 text-slate-400')
+                                        ui.label('Refresh UI').classes('text-xs font-bold capitalize')
+                                    
+                                    with ui.button(on_click=logout).props('flat dense').classes('w-full justify-start px-3 py-2 text-red-400 hover:bg-red-500/10 hover:text-red-300 rounded transition-colors mt-1'):
+                                        ui.icon('logout', size='16px').classes('mr-2')
+                                        ui.label('Logout').classes('text-xs font-bold capitalize')
 
             # --- SIDEBAR ---
             with ui.left_drawer(value=False).classes(UIStyles.SIDEBAR) as left_drawer:

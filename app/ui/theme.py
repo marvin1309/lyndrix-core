@@ -7,14 +7,13 @@ class UIStyles:
     CARD_BASE = 'p-6 rounded-3xl shadow-lg border border-slate-200 dark:border-zinc-800 lyndrix-card'
     CARD_GLASS = 'p-6 rounded-3xl shadow-lg border border-slate-200 dark:border-zinc-800 lyndrix-glass-card'
     CARD_HIGHLIGHT = 'p-6 rounded-3xl border-2 border-primary bg-indigo-50/50 dark:bg-indigo-900/20'
+    MODAL_CONTAINER = '!bg-slate-50 dark:!bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xl rounded-2xl'
 
     # ----------------------------------------------------
     # 2. STRUKTUR & LAYOUT
     # ----------------------------------------------------
     HEADER = '!bg-white/80 dark:!bg-zinc-950/80 backdrop-blur-md border-b border-slate-200 dark:border-zinc-800 text-slate-800 dark:text-white'    
-    NAV_CATEGORY = 'text-[9px] px-4 opacity-50 mt-4 text-slate-500 dark:text-zinc-400 font-bold tracking-widest uppercase'
-    NAV_LINK = 'flex items-center gap-3 px-4 py-2 hover:bg-slate-200 dark:hover:bg-zinc-800 no-underline text-slate-700 dark:text-zinc-300 transition-colors w-full rounded-lg mx-2'
-    SIDEBAR = '!bg-slate-50 dark:!bg-zinc-950 border-r border-slate-200 dark:border-zinc-800 !p-4 flex flex-col'
+    TAB_BAR = 'w-full justify-start border-b border-slate-200 dark:border-zinc-800 text-slate-500 dark:text-zinc-400'
     # ----------------------------------------------------
     # 3. TYPOGRAFIE
     # ----------------------------------------------------
@@ -135,6 +134,12 @@ def apply_theme(theme_pref: str = 'auto'):
             .body--dark .q-card, .dark .q-card {{
                 background: #18181b;
                 color: white;
+            }}
+            
+            /* Overrides hardcoded Quasar bg-white classes ONLY in dark mode */
+            .body--dark .bg-white, .dark .bg-white {{
+                background-color: #18181b !important;
+                color: #f4f4f5 !important;
             }}
 
             /* Scrollbar Styling */
