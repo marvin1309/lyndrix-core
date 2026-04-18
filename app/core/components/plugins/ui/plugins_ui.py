@@ -24,12 +24,12 @@ def render_plugins_page():
         # Header
         with ui.row().classes('w-full justify-between items-center'):
             with ui.column().classes('gap-0'):
-                ui.label('Plugin Management').classes('text-2xl font-bold dark:text-white')
+                ui.label('Plugin Management').classes(UIStyles.TITLE_H2)
                 ui.label('Erweitere Lyndrix mit Community-Modulen.').classes(UIStyles.TEXT_MUTED)
             ui.button('Updates suchen', icon='update', on_click=check_all_updates).props('outline color=slate').tooltip('Prüft global auf neue Versionen')
         
         # Tabs
-        with ui.tabs().classes('w-full justify-start border-b border-zinc-800 text-zinc-400') as tabs:
+        with ui.tabs().classes(UIStyles.TAB_BAR) as tabs:
             tab_installed = ui.tab('Installiert', icon='extension')
             tab_shop = ui.tab('Marketplace', icon='shopping_bag')
 
@@ -37,7 +37,7 @@ def render_plugins_page():
             
             # --- TAB 1: INSTALLIERTE PLUGINS ---
             with ui.tab_panel(tab_installed).classes('p-0'):
-                ui.label('Installierte Module').classes('text-lg font-bold mb-4')
+                ui.label('Installierte Module').classes(UIStyles.TITLE_H3 + ' mb-4')
 
                 installed_container = ui.grid(columns=3).classes('w-full gap-6')
                 
@@ -100,7 +100,7 @@ def render_plugins_page():
                             ui.label(m.description).classes('text-xs text-zinc-400 leading-relaxed line-clamp-3 mb-4 flex-grow')
                             
                             def open_logs(manifest=m):
-                                with ui.dialog() as log_dialog, ui.card().classes('w-full max-w-4xl h-[80vh] bg-zinc-950 border border-zinc-800'):
+                                with ui.dialog() as log_dialog, ui.card().classes(f'w-full max-w-4xl h-[80vh] {UIStyles.MODAL_CONTAINER}'):
                                     with ui.row().classes('w-full justify-between items-center mb-4'):
                                         ui.label(f'Logs: {manifest.name}').classes('text-xl font-bold font-mono text-emerald-500')
                                         ui.button(icon='close', on_click=log_dialog.close).props('flat round dense')
@@ -122,7 +122,7 @@ def render_plugins_page():
 
                             def open_settings(manifest=m, active=is_active):
                                 # UPDATED CARD CLASSES: Full width/height calc, no max width, flex-col to allow inner scrolling, 20px padding
-                                with ui.dialog() as settings_dialog, ui.card().classes('w-[calc(100vw-40px)] h-[calc(100vh-40px)] max-w-none max-h-none bg-zinc-950 border border-zinc-800 p-[20px] flex flex-col'):
+                                with ui.dialog() as settings_dialog, ui.card().classes(f'w-[calc(100vw-40px)] h-[calc(100vh-40px)] max-w-none max-h-none p-[20px] flex flex-col {UIStyles.MODAL_CONTAINER}'):
                                     with ui.row().classes('w-full justify-between items-center mb-4 shrink-0'):
                                         ui.label(f'Settings: {manifest.name}').classes('text-xl font-bold font-mono text-emerald-500')
                                         ui.button(icon='close', on_click=settings_dialog.close).props('flat round dense')
@@ -274,7 +274,7 @@ def render_plugins_page():
                             with ui.card().classes(UIStyles.CARD_GLASS + ' flex flex-col justify-between h-full'):
                                 with ui.column().classes('gap-1'):
                                     with ui.row().classes('w-full justify-between items-start'):
-                                        ui.label(p['name']).classes('font-bold text-lg')
+                                        ui.label(p['name']).classes(UIStyles.TITLE_H3)
                                         with ui.row().classes('items-center gap-2'):
                                             with ui.row().classes('items-center gap-1 text-amber-500'):
                                                 ui.icon('star', size='14px')

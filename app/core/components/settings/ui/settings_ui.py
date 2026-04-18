@@ -29,7 +29,7 @@ async def render_settings_page():
         ui.separator().classes('bg-zinc-800')
 
         # --- Tabs Navigation ---
-        with ui.tabs().classes('w-full justify-start border-b border-zinc-800 text-zinc-400') as tabs:
+        with ui.tabs().classes(UIStyles.TAB_BAR) as tabs:
             tab_profile = ui.tab('Profil', icon='person').classes('capitalize')
             tab_system  = ui.tab('System', icon='settings').classes('capitalize')
             tab_plugins = ui.tab('Plugins', icon='extension').classes('capitalize')

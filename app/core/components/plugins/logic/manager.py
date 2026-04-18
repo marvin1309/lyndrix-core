@@ -195,6 +195,10 @@ class ModuleManager:
         entry = self.registry.get(module_id)
         if not entry:
             return
+            
+        # PREVENT DUPLICATE BOOT: Do not setup already active plugins
+        if entry.get("status") == "active":
+            return
 
         module = entry["module"]
         ctx = entry["context"]
@@ -237,11 +241,13 @@ class ModuleManager:
                     session.commit()
 
                 if db_state.is_active:
-                    log.info(f"DB_RESTORE: Activating plugin '{module_id}'")
-                    self._execute_setup(module_id)
+                    if entry.get("status") != "active":
+                        log.info(f"DB_RESTORE: Activating plugin '{module_id}'")
+                        self._execute_setup(module_id)
                 else:
-                    log.info(f"DB_RESTORE: Plugin '{module_id}' remains disabled.")
-                    entry["status"] = "disabled"
+                    if entry.get("status") != "disabled":
+                        log.info(f"DB_RESTORE: Plugin '{module_id}' remains disabled.")
+                        entry["status"] = "disabled"
 
     def toggle_module(self, module_id: str, active: bool):
         """Toggles the module state in RAM and persists it to the DB."""
