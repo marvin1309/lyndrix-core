@@ -1,347 +1,389 @@
 import os
-import asyncio
-from nicegui import ui, run
-from ui.theme import UIStyles
-from core.logger import get_logger, log_capture_buffer
 
-# Wir importieren unseren Service für den Download
-from ..logic.plugin_service import plugin_service
-# Wir importieren den Manager, um die Liste der installierten Module zu bekommen
+from nicegui import ui
+
+from core.logger import get_logger, log_capture_buffer
+from ui.theme import UIStyles
+
 from ..logic.manager import module_manager
+from ..logic.plugin_service import plugin_service
 
 log = get_logger("UI:Plugins")
 
+PLUGIN_DIALOG_CLASSES = (
+    f'w-[calc(100vw-40px)] h-[calc(100vh-40px)] max-w-none '
+    f'max-h-none p-[20px] flex flex-col {UIStyles.MODAL_CONTAINER}'
+)
+
+
+def _module_folder_name(module):
+    if not module or not hasattr(module, '__file__'):
+        return None
+    return os.path.basename(os.path.dirname(module.__file__))
+
+
+def _version_label(version: str) -> str:
+    return version if version.startswith('v') else f'v{version}'
+
+
+def _plugin_source_kind(manifest, folder_name: str, source_map: dict) -> str:
+    if manifest.type == 'CORE':
+        return 'core'
+    return 'marketplace' if source_map.get(folder_name) or manifest.repo_url else 'local'
+
+
+def _source_badge(source_kind: str):
+    if source_kind == 'core':
+        return 'Core', 'bg-amber-500/15 text-amber-400 border border-amber-500/30'
+    if source_kind == 'marketplace':
+        return 'Marketplace', 'bg-sky-500/15 text-sky-300 border border-sky-500/30'
+    return 'Local', 'bg-zinc-700/40 text-zinc-200 border border-zinc-600/60'
+
+
+def _status_badge(status: str):
+    mapping = {
+        'active': ('Active', 'bg-emerald-500/15 text-emerald-300 border border-emerald-500/30'),
+        'disabled': ('Disabled', 'bg-zinc-700/40 text-zinc-200 border border-zinc-600/60'),
+        'blocked': ('Blocked', 'bg-amber-500/15 text-amber-300 border border-amber-500/30'),
+        'initializing': ('Loading', 'bg-indigo-500/15 text-indigo-300 border border-indigo-500/30'),
+    }
+    return mapping.get(status, ('Unknown', 'bg-zinc-700/40 text-zinc-200 border border-zinc-600/60'))
+
+
 def render_plugins_page():
-    """Rendert die komplette Plugin-Verwaltungsseite (Installer + Liste)."""
-    
+    """Renders the full plugin management page."""
+
+    def collect_module_records():
+        source_map = plugin_service.get_marketplace_source_map()
+        records = []
+        by_folder = {}
+
+        for module_id, entry in module_manager.registry.items():
+            manifest = entry['manifest']
+            folder_name = _module_folder_name(entry.get('module'))
+            source_url = source_map.get(folder_name) or manifest.repo_url
+            source_kind = _plugin_source_kind(manifest, folder_name, source_map)
+            record = {
+                'module_id': module_id,
+                'manifest': manifest,
+                'entry': entry,
+                'folder_name': folder_name,
+                'source_url': source_url,
+                'source_kind': source_kind,
+            }
+            records.append(record)
+            if folder_name:
+                by_folder[folder_name] = record
+                if folder_name.startswith('lyndrix_'):
+                    by_folder[folder_name[len('lyndrix_'):]] = record
+
+        records.sort(key=lambda record: (0 if record['manifest'].type == 'CORE' else 1, record['manifest'].name.lower()))
+        return records, by_folder
+
+    async def populate_version_select(select, source_url: str, current_version: str = None, force_refresh: bool = False):
+        if not source_url:
+            return
+
+        tags = await plugin_service.get_plugin_versions(source_url, force_refresh=force_refresh)
+        options = ['latest'] + [tag for tag in tags if tag != 'latest']
+        if current_version and current_version not in options:
+            bare_version = current_version.lstrip('v')
+            prefixed_version = current_version if current_version.startswith('v') else f'v{current_version}'
+            if prefixed_version in options:
+                current_version = prefixed_version
+            elif bare_version in options:
+                current_version = bare_version
+            else:
+                options.append(current_version)
+
+        select.options = options
+        select.value = current_version if current_version in options else options[0]
+        select.update()
+
+    async def uninstall_record(record):
+        manifest = record['manifest']
+        folder_name = record['folder_name']
+        if manifest.type != 'PLUGIN' or not folder_name:
+            ui.notify('Core-Module konnen nicht deinstalliert werden.', type='warning')
+            return
+
+        if await plugin_service.uninstall_plugin(manifest.id, folder_name):
+            ui.notify(f'{manifest.name} wurde deinstalliert.', type='positive')
+            await load_installed()
+            await load_shop()
+        else:
+            ui.notify(f'Deinstallation von {manifest.name} fehlgeschlagen.', type='negative')
+
+    def open_logs(manifest):
+        with ui.dialog() as log_dialog, ui.card().classes(f'w-full max-w-4xl h-[80vh] {UIStyles.MODAL_CONTAINER}'):
+            with ui.row().classes('w-full justify-between items-center mb-4'):
+                ui.label(f'Logs: {manifest.name}').classes('text-xl font-bold font-mono text-emerald-500')
+                ui.button(icon='close', on_click=log_dialog.close).props('flat round dense')
+
+            log_container = ui.scroll_area().classes('w-full flex-grow bg-black/50 rounded-xl p-4 font-mono text-xs')
+            target_logger = f"Plugin:{manifest.name}" if manifest.type == 'PLUGIN' else f"Core:{manifest.name}"
+            found_logs = [entry for entry in log_capture_buffer if entry[0] == target_logger]
+
+            with log_container:
+                if not found_logs:
+                    ui.label('Keine Logs gefunden.').classes('text-zinc-600 italic')
+                for _, level, message in found_logs:
+                    color = 'text-red-500' if level in ['ERROR', 'CRITICAL'] else 'text-zinc-300'
+                    ui.label(message).classes(f'{color} whitespace-pre-wrap mb-1')
+
+        log_dialog.open()
+
+    def open_settings(record):
+        manifest = record['manifest']
+        active = record['entry'].get('status') == 'active'
+
+        with ui.dialog() as settings_dialog, ui.card().classes(PLUGIN_DIALOG_CLASSES):
+            with ui.row().classes('w-full justify-between items-center mb-4 shrink-0'):
+                ui.label(f'Settings: {manifest.name}').classes('text-xl font-bold font-mono text-emerald-500')
+                ui.button(icon='close', on_click=settings_dialog.close).props('flat round dense')
+
+            with ui.scroll_area().classes('w-full flex-grow pr-4'):
+                with ui.column().classes('w-full gap-4'):
+                    def toggle_plugin_inner(event):
+                        module_manager.toggle_module(manifest.id, event.value)
+                        if event.value:
+                            ui.notify(f'{manifest.name} aktiviert.', type='positive')
+                        else:
+                            ui.notify(f'{manifest.name} deaktiviert.', type='warning')
+
+                    ui.switch('Plugin Aktiviert', value=active, on_change=toggle_plugin_inner).props('color=emerald').classes('w-full')
+
+                    entry = module_manager.registry.get(manifest.id)
+                    if entry and entry.get('status') == 'active':
+                        module = entry.get('module')
+                        ctx = entry.get('context')
+                        if module and hasattr(module, 'render_settings_ui'):
+                            ui.separator().classes('bg-zinc-800 my-2')
+                            ui.label('Konfiguration').classes('text-xs font-bold uppercase tracking-widest text-zinc-500')
+                            try:
+                                module.render_settings_ui(ctx)
+                            except Exception as exc:
+                                ui.label(f'Fehler in Plugin-UI: {exc}').classes('text-red-500 text-xs')
+
+                    ui.separator().classes('bg-zinc-800')
+
+                    if manifest.type == 'PLUGIN':
+                        async def reload_plugin_inner():
+                            try:
+                                ui.notify(f'Reloade {manifest.name}...', type='ongoing')
+                                await module_manager.reload_module(manifest.id)
+                                await load_installed()
+                                await load_shop()
+                                ui.notify('Reload abgeschlossen.', type='positive')
+                                settings_dialog.close()
+                            except Exception as exc:
+                                ui.notify(f'Fehler beim Reload: {exc}', type='negative')
+
+                        async def delete_plugin_inner():
+                            await uninstall_record(record)
+                            settings_dialog.close()
+
+                        ui.button('Plugin neu laden', icon='refresh', on_click=reload_plugin_inner).props('outline color=slate').classes('w-full')
+                        ui.button('Deinstallieren', icon='delete', on_click=delete_plugin_inner).props('unelevated color=red').classes('w-full')
+
+        settings_dialog.open()
+
     async def check_all_updates():
-        ui.notify('Prüfe auf Updates...', type='ongoing')
-        await load_installed(force_refresh=True)
+        ui.notify('Prufe Marketplace-Daten neu...', type='ongoing')
+        await load_installed()
         await load_shop(force_refresh=True)
-        ui.notify('Update-Prüfung abgeschlossen.', type='positive')
+        ui.notify('Update-Prufung abgeschlossen.', type='positive')
 
     with ui.column().classes('w-full max-w-7xl gap-6 mx-auto'):
-        # Header
         with ui.row().classes('w-full justify-between items-center'):
             with ui.column().classes('gap-0'):
                 ui.label('Plugin Management').classes(UIStyles.TITLE_H2)
-                ui.label('Erweitere Lyndrix mit Community-Modulen.').classes(UIStyles.TEXT_MUTED)
-            ui.button('Updates suchen', icon='update', on_click=check_all_updates).props('outline color=slate').tooltip('Prüft global auf neue Versionen')
-        
-        # Tabs
+                ui.label('Installierte Module reagieren sofort, Marketplace-Daten laden in kleinen GitHub-freundlichen Batches.').classes(UIStyles.TEXT_MUTED)
+            ui.button('Updates suchen', icon='update', on_click=check_all_updates).props('outline color=slate').tooltip('Aktualisiert Marketplace-Metadaten und Versionen bei Bedarf')
+
         with ui.tabs().classes(UIStyles.TAB_BAR) as tabs:
             tab_installed = ui.tab('Installiert', icon='extension')
             tab_shop = ui.tab('Marketplace', icon='shopping_bag')
 
         with ui.tab_panels(tabs, value=tab_installed).classes('w-full bg-transparent p-0 mt-4'):
-            
-            # --- TAB 1: INSTALLIERTE PLUGINS ---
             with ui.tab_panel(tab_installed).classes('p-0'):
                 ui.label('Installierte Module').classes(UIStyles.TITLE_H3 + ' mb-4')
-
                 installed_container = ui.grid(columns=3).classes('w-full gap-6')
-                
+                with installed_container:
+                    ui.spinner('dots', size='lg').classes('col-span-3 mx-auto')
+
                 async def load_installed(force_refresh=False):
-                    with installed_container:
-                        ui.spinner('dots', size='lg').classes('col-span-3 mx-auto')
-                        
-                    manifests = module_manager.get_manifests()
-                    marketplace_plugins = await plugin_service.fetch_marketplace_data(force_refresh=force_refresh)
-                    
-                    repo_map = {}
-                    for p in marketplace_plugins:
-                        try:
-                            u, r = plugin_service._extract_repo_info(p['clone_url'])
-                            repo_map[r.replace("-", "_")] = p['clone_url']
-                        except:
-                            pass
-
-                    installed_github_urls = []
-                    for m in manifests:
-                        entry = module_manager.registry.get(m.id, {})
-                        mod = entry.get("module")
-                        folder_name = os.path.basename(os.path.dirname(mod.__file__)) if mod and hasattr(mod, '__file__') else None
-                        gurl = repo_map.get(folder_name) if folder_name else None
-                        if gurl: installed_github_urls.append(gurl)
-                        
-                    tag_tasks = [plugin_service.get_plugin_versions(u, force_refresh=force_refresh) for u in installed_github_urls]
-                    tags_results = await asyncio.gather(*tag_tasks, return_exceptions=True)
-                    url_to_tags = {u: ["latest"] + (res if isinstance(res, list) else []) for u, res in zip(installed_github_urls, tags_results)}
-
+                    del force_refresh
+                    records, _ = collect_module_records()
                     installed_container.clear()
-                    
+
                     with installed_container:
-                        if not manifests:
-                            ui.label("Keine Plugins installiert.").classes('col-span-3 text-zinc-500 italic p-4')
+                        if not records:
+                            ui.label('Keine Plugins installiert.').classes('col-span-3 text-zinc-500 italic p-4')
                             return
 
-                        for m in manifests:
-                            # Status prüfen
-                            entry = module_manager.registry.get(m.id, {})
-                            is_active = entry.get("status") == "active"
-                            mod = entry.get("module")
-                            folder_name = None
-                            if mod and hasattr(mod, '__file__'):
-                                folder_name = os.path.basename(os.path.dirname(mod.__file__))
-                            github_url = repo_map.get(folder_name) if folder_name else None
-                            
-                            with ui.card().classes(UIStyles.CARD_GLASS + ' flex flex-col justify-between h-full'):
-                                # Header Karte
-                                with ui.row().classes('w-full items-start justify-between mb-2'):
-                                    with ui.row().classes('items-center gap-3'):
-                                        ui.icon(m.icon, size='32px').classes('text-primary')
-                                        with ui.column().classes('gap-0'):
-                                            ui.label(m.name).classes('font-bold text-lg leading-tight')
-                                            ui.label(f'by {m.author}').classes('text-[10px] text-zinc-500 uppercase tracking-widest')
-                                    
-                                    badge_color = 'bg-amber-500/20 text-amber-500' if m.type == "CORE" else 'bg-emerald-500/20 text-emerald-500'
-                                    ui.label(m.type).classes(f'text-[9px] font-bold px-2 py-1 rounded-full {badge_color}')
+                        for record in records:
+                            manifest = record['manifest']
+                            entry = record['entry']
+                            source_label, source_classes = _source_badge(record['source_kind'])
+                            status_label, status_classes = _status_badge(entry.get('status'))
+                            current_version = manifest.version if record['source_kind'] == 'local' else _version_label(manifest.version)
 
-                            ui.label(m.description).classes('text-xs text-zinc-400 leading-relaxed line-clamp-3 mb-4 flex-grow')
-                            
-                            def open_logs(manifest=m):
-                                with ui.dialog() as log_dialog, ui.card().classes(f'w-full max-w-4xl h-[80vh] {UIStyles.MODAL_CONTAINER}'):
-                                    with ui.row().classes('w-full justify-between items-center mb-4'):
-                                        ui.label(f'Logs: {manifest.name}').classes('text-xl font-bold font-mono text-emerald-500')
-                                        ui.button(icon='close', on_click=log_dialog.close).props('flat round dense')
-                                    
-                                    log_container = ui.scroll_area().classes('w-full flex-grow bg-black/50 rounded-xl p-4 font-mono text-xs')
-                                    
-                                    # Logs filtern
-                                    target_logger = f"Plugin:{manifest.name}" if manifest.type == "PLUGIN" else f"Core:{manifest.name}"
-                                    found_logs = [entry for entry in log_capture_buffer if entry[0] == target_logger]
-                                    
-                                    with log_container:
-                                        if not found_logs:
-                                            ui.label('Keine Logs gefunden.').classes('text-zinc-600 italic')
-                                        for logger_name, level, msg in found_logs:
-                                            color = 'text-red-500' if level in ['ERROR', 'CRITICAL'] else 'text-zinc-300'
-                                            ui.label(msg).classes(f'{color} whitespace-pre-wrap mb-1')
-                                    
-                                    log_dialog.open()
+                            with ui.card().classes(UIStyles.CARD_GLASS + ' flex flex-col overflow-hidden').style('padding: 0; flex-wrap: nowrap'):
+                                ui.element('div').classes('h-1 w-full bg-gradient-to-r from-emerald-400 via-sky-400 to-indigo-500')
+                                with ui.column().classes('w-full flex-grow gap-4 p-5'):
+                                    with ui.row().classes('w-full items-start justify-between gap-3'):
+                                        with ui.row().classes('items-center gap-3 min-w-0'):
+                                            ui.icon(manifest.icon, size='30px').classes('text-primary shrink-0')
+                                            with ui.column().classes('gap-0 min-w-0'):
+                                                ui.label(manifest.name).classes('font-bold text-lg leading-tight truncate')
+                                                ui.label(f'by {manifest.author}').classes('text-[10px] text-zinc-500 uppercase tracking-widest')
+                                        ui.label(manifest.type).classes('text-[9px] font-bold px-2 py-1 rounded-full bg-zinc-800/80 text-zinc-200 shrink-0')
 
-                            def open_settings(manifest=m, active=is_active):
-                                # UPDATED CARD CLASSES: Full width/height calc, no max width, flex-col to allow inner scrolling, 20px padding
-                                with ui.dialog() as settings_dialog, ui.card().classes(f'w-[calc(100vw-40px)] h-[calc(100vh-40px)] max-w-none max-h-none p-[20px] flex flex-col {UIStyles.MODAL_CONTAINER}'):
-                                    with ui.row().classes('w-full justify-between items-center mb-4 shrink-0'):
-                                        ui.label(f'Settings: {manifest.name}').classes('text-xl font-bold font-mono text-emerald-500')
-                                        ui.button(icon='close', on_click=settings_dialog.close).props('flat round dense')
-                                    
-                                    # UPDATED SCROLL AREA: flex-grow instead of max-h-[70vh] so it scales perfectly with the massive card
-                                    with ui.scroll_area().classes('w-full flex-grow pr-4'):
-                                        with ui.column().classes('w-full gap-4'):
-                                            # 1. Status Switch
-                                            def toggle_plugin_inner(e):
-                                                module_manager.toggle_module(manifest.id, e.value)
-                                                if e.value:
-                                                    ui.notify(f'{manifest.name} aktiviert.', type='positive')
-                                                else:
-                                                    ui.notify(f'{manifest.name} deaktiviert.', type='warning')
-                                            
-                                            ui.switch('Plugin Aktiviert', value=active, on_change=toggle_plugin_inner).props('color=emerald').classes('w-full')
-                                            
-                                            # --- PLUGIN SPECIFIC SETTINGS ---
-                                            entry = module_manager.registry.get(manifest.id)
-                                            if entry and entry.get("status") == "active":
-                                                mod = entry.get("module")
-                                                ctx = entry.get("context")
-                                                
-                                                if mod and hasattr(mod, 'render_settings_ui'):
-                                                    ui.separator().classes('bg-zinc-800 my-2')
-                                                    ui.label('Konfiguration').classes('text-xs font-bold uppercase tracking-widest text-zinc-500')
-                                                    try:
-                                                        mod.render_settings_ui(ctx)
-                                                    except Exception as e:
-                                                        ui.label(f"Fehler in Plugin-UI: {str(e)}").classes('text-red-500 text-xs')
-                                            
-                                            ui.separator().classes('bg-zinc-800')
+                                    with ui.row().classes('w-full items-center gap-2 flex-wrap'):
+                                        ui.label(source_label).classes(f'text-[10px] font-bold px-2 py-1 rounded-full {source_classes}')
+                                        ui.label(status_label).classes(f'text-[10px] font-bold px-2 py-1 rounded-full {status_classes}')
+                                        if record['folder_name']:
+                                            ui.label(record['folder_name']).classes('text-[10px] font-mono px-2 py-1 rounded-full bg-black/20 text-zinc-300')
 
-                                            # 2. Actions (Nur für Plugins, nicht Core)
-                                            if manifest.type == "PLUGIN":
-                                                async def reload_plugin_inner():
-                                                    try:
-                                                        ui.notify(f'Reloade {manifest.name}...', type='ongoing')
-                                                        await module_manager.reload_module(manifest.id)
-                                                        ui.notify('Reload abgeschlossen.', type='positive')
-                                                        settings_dialog.close()
-                                                        ui.navigate.to('/settings')
-                                                    except Exception as e:
-                                                        ui.notify(f'Fehler beim Reload: {str(e)}', type='negative')
+                                    ui.label(manifest.description).classes('text-sm text-zinc-400 leading-relaxed min-h-[72px] flex-grow')
 
-                                                ui.button('Plugin neu laden', icon='refresh', on_click=reload_plugin_inner).props('outline color=slate').classes('w-full')
-                                                
-                                                async def delete_plugin_inner():
-                                                    mod_entry = module_manager.registry.get(manifest.id, {})
-                                                    mod = mod_entry.get("module")
-                                                    if mod:
-                                                        import os
-                                                        folder_name = os.path.basename(os.path.dirname(mod.__file__))
-                                                        # The service will emit an event that the manager will catch.
-                                                        await plugin_service.uninstall_plugin(manifest.id, folder_name)
-                                                        ui.notify(f'Plugin {folder_name} uninstalled. Please reload the page.', type='positive')
-                                                        settings_dialog.close()
+                                    with ui.row().classes('w-full items-center justify-between gap-3 pt-2 border-t border-zinc-800/60 flex-wrap'):
+                                        with ui.row().classes('items-center gap-2 flex-wrap'):
+                                            version_select = ui.select(options=[current_version], value=current_version).classes('w-32').props('dense options-dense outlined borderless')
+
+                                            if record['source_url'] and record['source_kind'] == 'marketplace':
+                                                ui.button(
+                                                    icon='unfold_more',
+                                                    on_click=lambda select=version_select, url=record['source_url'], version=current_version: populate_version_select(select, url, version)
+                                                ).props('flat round size=sm color=slate').tooltip('Verfugbare Versionen laden')
+
+                                                async def run_update(select=version_select, url=record['source_url'], name=manifest.name):
+                                                    ui.notify(f'Installiere {select.value} fur {name}...', type='ongoing')
+                                                    if await plugin_service.install_plugin(url, version=select.value, upgrade=True):
+                                                        await load_installed()
+                                                        await load_shop()
+                                                        ui.notify(f'{name} aktualisiert.', type='positive')
                                                     else:
-                                                        ui.notify('Fehler: Modul nicht geladen. Bitte erst aktivieren.', type='warning')
+                                                        ui.notify(f'Update von {name} fehlgeschlagen.', type='negative')
 
-                                                ui.button('Deinstallieren', icon='delete', color='red', on_click=delete_plugin_inner).props('unelevated').classes('w-full')
+                                                ui.button(icon='cloud_download', on_click=run_update).props('flat round size=sm color=warning').tooltip('Ausgewahlte Version installieren')
 
-                                    settings_dialog.open()
-
-                            # Actions Footer (Clean Left/Right Split)
-                            with ui.row().classes('w-full mt-auto pt-4 border-t border-zinc-800/50 items-center justify-between'):
-                                
-                                # LEFT SIDE: Version / Update Selector / Local Tag
-                                with ui.row().classes('items-center gap-2'):
-                                    if m.type == "PLUGIN":
-                                        if github_url:
-                                            update_area = ui.row().classes('items-center gap-2')
-                                            with update_area:
-                                                async def check_updates(manifest=m, g_url=github_url, area=update_area, f_name=folder_name):
-                                                    area.clear()
-                                                    with area:
-                                                        ui.spinner('dots', size='sm', color='primary')
-                                                    
-                                                    tags = await plugin_service.get_plugin_versions(g_url)
-                                                    
-                                                    area.clear()
-                                                    with area:
-                                                        if not tags:
-                                                            ui.label(f"v{manifest.version}").classes('text-xs font-mono text-zinc-500')
-                                                            return
-                                                        
-                                                        target_val = manifest.version
-                                                        if target_val not in tags and f"v{target_val}" in tags:
-                                                            target_val = f"v{target_val}"
-                                                        elif target_val not in tags and tags:
-                                                            target_val = tags[0]
-                                                            
-                                                        version_select = ui.select(options=tags, value=target_val).classes('w-28').props('dense options-dense outlined borderless')
-                                                        
-                                                        async def run_update(ver, gurl=g_url):
-                                                            ui.notify(f"Installiere {ver}...", type="ongoing")
-                                                            if await plugin_service.install_plugin(gurl, version=ver, upgrade=True):
-                                                                ui.notify("Update erfolgreich! UI wird neu geladen...", type="positive")
-                                                            else:
-                                                                ui.notify("Fehler beim Update.", type="negative")
-
-                                                        ui.button(icon='cloud_download', on_click=lambda v=version_select: run_update(v.value)).props('flat round size=sm color=warning').tooltip("Version installieren")
-
-                                            ui.button(f"v{m.version}", on_click=check_updates).props('flat dense size=sm color=slate').tooltip("Updates suchen")
-                                        else:
-                                            ui.label('Local').classes('text-xs font-mono text-zinc-500 bg-zinc-800/50 px-2 py-1 rounded').tooltip('Local Installation')
-                                    else:
-                                        ui.label(f'v{m.version}').classes('text-xs font-mono text-zinc-500')
-
-                                # RIGHT SIDE: Action Buttons
-                                with ui.row().classes('items-center gap-1'):
-                                    ui.button(icon='article', on_click=open_logs).props('flat round size=sm color=slate').tooltip('Logs anzeigen')
-                                    ui.button(icon='settings', on_click=open_settings).props('flat round size=sm color=slate').tooltip('Konfiguration öffnen')
+                                        with ui.row().classes('items-center gap-1 ml-auto'):
+                                            ui.button(icon='article', on_click=lambda manifest=manifest: open_logs(manifest)).props('flat round size=sm color=slate').tooltip('Logs anzeigen')
+                                            ui.button(icon='settings', on_click=lambda record=record: open_settings(record)).props('flat round size=sm color=slate').tooltip('Konfiguration offnen')
+                                            if manifest.type == 'PLUGIN':
+                                                ui.button(icon='delete', on_click=lambda record=record: uninstall_record(record)).props('flat round size=sm color=red').tooltip('Schnell deinstallieren')
 
                 ui.timer(0.1, load_installed, once=True)
 
-            # --- TAB 2: MARKETPLACE ---
             with ui.tab_panel(tab_shop).classes('p-0'):
-                
-                # Search Bar
+                ui.label('Marketplace').classes(UIStyles.TITLE_H3 + ' mb-4')
                 search = ui.input(placeholder='Plugins suchen...').props('outlined dark dense icon=search').classes('w-full mb-6')
-                
-                # Async Loader Container
                 shop_container = ui.grid(columns=3).classes('w-full gap-6')
-                
+                with shop_container:
+                    ui.spinner('dots', size='lg').classes('col-span-3 mx-auto')
+
                 async def load_shop(force_refresh=False):
+                    shop_container.clear()
                     with shop_container:
                         ui.spinner('dots', size='lg').classes('col-span-3 mx-auto')
-                    
+
                     plugins = await plugin_service.fetch_marketplace_data(force_refresh=force_refresh)
-                    
-                    # Fetch available versions for all marketplace plugins concurrently
-                    tag_tasks = [plugin_service.get_plugin_versions(p['clone_url'], force_refresh=force_refresh) for p in plugins]
-                    tags_results = await asyncio.gather(*tag_tasks, return_exceptions=True)
-                    for i, p in enumerate(plugins):
-                        res = tags_results[i]
-                        p['tags'] = ["latest"] + (res if isinstance(res, list) else [])
-                    
+                    _, registry_by_folder = collect_module_records()
+                    query = (search.value or '').strip().lower()
+
+                    filtered_plugins = [
+                        plugin for plugin in plugins
+                        if not query or query in ' '.join([
+                            str(plugin.get('name', '')),
+                            str(plugin.get('description', '')),
+                            str(plugin.get('author', '')),
+                        ]).lower()
+                    ]
+
                     shop_container.clear()
-                    
                     with shop_container:
-                        if not plugins:
-                            ui.label("Keine Plugins im Marketplace gefunden.").classes('col-span-3 text-center text-zinc-500')
+                        if not filtered_plugins:
+                            ui.label('Keine Plugins im Marketplace gefunden.').classes('col-span-3 text-center text-zinc-500')
                             return
 
-                        for p in plugins:
-                            with ui.card().classes(UIStyles.CARD_GLASS + ' flex flex-col justify-between h-full'):
-                                with ui.column().classes('gap-1'):
-                                    with ui.row().classes('w-full justify-between items-start'):
-                                        ui.label(p['name']).classes(UIStyles.TITLE_H3)
-                                        with ui.row().classes('items-center gap-2'):
-                                            with ui.row().classes('items-center gap-1 text-amber-500'):
+                        for plugin in filtered_plugins:
+                            repo_safe = plugin.get('repo_safe')
+                            repo_aliases = plugin.get('repo_aliases') or ([repo_safe] if repo_safe else [])
+                            installed_record = None
+                            for alias in repo_aliases:
+                                installed_record = registry_by_folder.get(alias)
+                                if installed_record:
+                                    break
+                            installed_manifest = installed_record['manifest'] if installed_record else None
+                            installed_version = _version_label(installed_manifest.version) if installed_manifest else 'latest'
+
+                            with ui.card().classes(UIStyles.CARD_GLASS + ' flex flex-col overflow-hidden').style('padding: 0; flex-wrap: nowrap'):
+                                ui.element('div').classes('h-1 w-full bg-gradient-to-r from-sky-400 via-cyan-400 to-emerald-400')
+                                with ui.column().classes('w-full flex-grow gap-4 p-5'):
+                                    with ui.row().classes('w-full justify-between items-start gap-3'):
+                                        with ui.column().classes('gap-1 min-w-0'):
+                                            ui.label(plugin['name']).classes(UIStyles.TITLE_H3 + ' truncate')
+                                            ui.label(f"by {plugin['author']}").classes('text-[10px] text-zinc-500 uppercase tracking-widest')
+                                        with ui.row().classes('items-center gap-2 shrink-0'):
+                                            with ui.row().classes('items-center gap-1 text-amber-500 bg-amber-500/10 px-2 py-1 rounded-full'):
                                                 ui.icon('star', size='14px')
-                                                ui.label(str(p['stars'])).classes('text-xs font-mono')
-                                            ui.button(icon='menu_book', on_click=lambda u=p['url']: ui.navigate.to(u, new_tab=True)).props('flat dense size=sm color=slate').tooltip('Readme öffnen')
-                                    
-                                    ui.label(f"by {p['author']}").classes('text-[10px] text-zinc-500 uppercase tracking-widest mb-2')
-                                    ui.label(p['description']).classes('text-sm text-zinc-400 leading-relaxed line-clamp-3')
+                                                ui.label(str(plugin['stars'])).classes('text-xs font-mono')
+                                            ui.button(icon='menu_book', on_click=lambda url=plugin['url']: ui.navigate.to(url, new_tab=True)).props('flat dense size=sm color=slate').tooltip('Readme offnen')
 
-                                # Check if plugin is already installed
-                                repo_safe = p['clone_url'].rstrip('/').split('/')[-1]
-                                if repo_safe.endswith('.git'): repo_safe = repo_safe[:-4]
-                                repo_safe = repo_safe.replace("-", "_")
-                                
-                                installed_version = None
-                                for e in module_manager.registry.values():
-                                    if "module" in e and hasattr(e["module"], '__file__'):
-                                        if os.path.basename(os.path.dirname(e["module"].__file__)) == repo_safe:
-                                            installed_version = e["manifest"].version
-                                            break
-                                
-                                is_installed = installed_version is not None
+                                    with ui.row().classes('items-center gap-2 flex-wrap'):
+                                        ui.label('Marketplace').classes('text-[10px] font-bold px-2 py-1 rounded-full bg-sky-500/15 text-sky-300 border border-sky-500/30')
+                                        if installed_record:
+                                            status_label, status_classes = _status_badge(installed_record['entry'].get('status'))
+                                            ui.label('Installiert').classes('text-[10px] font-bold px-2 py-1 rounded-full bg-emerald-500/15 text-emerald-300 border border-emerald-500/30')
+                                            ui.label(status_label).classes(f'text-[10px] font-bold px-2 py-1 rounded-full {status_classes}')
+                                        if plugin.get('metadata_source') == 'fallback':
+                                            ui.label('Cached/Fallback').classes('text-[10px] font-bold px-2 py-1 rounded-full bg-zinc-700/40 text-zinc-200 border border-zinc-600/60')
 
-                                with ui.row().classes('w-full mt-4 pt-4 border-t border-zinc-800/50 items-center justify-between'):
-                                    if is_installed:
-                                        target_val = installed_version
-                                        if target_val not in p['tags'] and f"v{target_val}" in p['tags']:
-                                            target_val = f"v{target_val}"
-                                        elif target_val not in p['tags']:
-                                            p['tags'].append(target_val)
-                                        
-                                        with ui.row().classes('items-center gap-2'):
-                                            version_select = ui.select(options=p['tags'], value=target_val).classes('w-28').props('dense options-dense outlined borderless')
-                                            
-                                            latest_release = p['tags'][1] if len(p['tags']) > 1 else None
-                                            if latest_release and latest_release.lstrip('v') != installed_version.lstrip('v'):
-                                                ui.badge(f"Neu: {latest_release}", color="warning").classes('text-[10px] px-1 py-0')
+                                    ui.label(plugin['description']).classes('text-sm text-zinc-400 leading-relaxed min-h-[72px] flex-grow')
 
-                                        def create_upgrade_handler(url, vs_element):
-                                            async def handler():
-                                                v = vs_element.value
-                                                ui.notify(f"Update {url} auf v{v}...", type='ongoing')
-                                                if await plugin_service.install_plugin(url, version=v, upgrade=True):
-                                                    ui.notify("Update erfolgreich! UI wird neu geladen...", type="positive")
-                                                else:
-                                                    ui.notify("Fehler beim Update.", type="negative")
-                                            return handler
-                                            
-                                        with ui.row().classes('items-center gap-2'):
-                                            ui.label('Installiert').classes('text-[10px] font-bold text-emerald-500 uppercase tracking-widest hidden xl:block')
-                                            ui.button(icon='sync', on_click=create_upgrade_handler(p['clone_url'], version_select)).props('unelevated size=sm color=warning rounded').tooltip('Version ändern')
-                                    else:
-                                        version_select = ui.select(options=p['tags'], value="latest").classes('w-28').props('dense options-dense outlined borderless')
-                                        
-                                        def create_install_handler(url, vs_element):
-                                            async def handler():
-                                                v = vs_element.value
-                                                ui.notify(f"Installiere {url} (v{v})...", type='ongoing')
-                                                if await plugin_service.install_plugin(url, version=v):
-                                                    ui.notify("Installiert! Bitte UI neu laden.", type='positive')
-                                                else:
-                                                    ui.notify("Fehler bei Installation.", type='negative')
-                                            return handler
+                                    with ui.row().classes('w-full items-center justify-between gap-3 pt-2 border-t border-zinc-800/60 flex-wrap'):
+                                        with ui.row().classes('items-center gap-2 flex-wrap'):
+                                            version_select = ui.select(
+                                                options=[installed_version if installed_record else 'latest'],
+                                                value=installed_version if installed_record else 'latest',
+                                            ).classes('w-32').props('dense options-dense outlined borderless')
 
-                                        ui.button('Install', icon='download', on_click=create_install_handler(p['clone_url'], version_select)).props('unelevated size=sm color=primary rounded')
+                                            ui.button(
+                                                icon='unfold_more',
+                                                on_click=lambda select=version_select, url=plugin['clone_url'], version=installed_version if installed_record else None: populate_version_select(select, url, version)
+                                            ).props('flat round size=sm color=slate').tooltip('Verfugbare Versionen laden')
 
-                # Trigger Load
+                                        with ui.row().classes('items-center gap-2 ml-auto'):
+                                            if installed_record:
+                                                async def upgrade_plugin(select=version_select, url=plugin['clone_url'], name=plugin['name']):
+                                                    ui.notify(f'Update {name} auf {select.value}...', type='ongoing')
+                                                    if await plugin_service.install_plugin(url, version=select.value, upgrade=True):
+                                                        await load_installed()
+                                                        await load_shop()
+                                                        ui.notify(f'{name} aktualisiert.', type='positive')
+                                                    else:
+                                                        ui.notify(f'Update von {name} fehlgeschlagen.', type='negative')
+
+                                                ui.button(icon='sync', on_click=upgrade_plugin).props('unelevated size=sm color=warning rounded').tooltip('Version andern')
+                                                ui.button(icon='delete', on_click=lambda record=installed_record: uninstall_record(record)).props('unelevated size=sm color=red rounded').tooltip('Schnell deinstallieren')
+                                            else:
+                                                async def install_plugin_handler(select=version_select, url=plugin['clone_url'], name=plugin['name']):
+                                                    ui.notify(f'Installiere {name} ({select.value})...', type='ongoing')
+                                                    if await plugin_service.install_plugin(url, version=select.value):
+                                                        await load_installed()
+                                                        await load_shop()
+                                                        ui.notify(f'{name} installiert und aktiviert.', type='positive')
+                                                    else:
+                                                        ui.notify(f'Installation von {name} fehlgeschlagen.', type='negative')
+
+                                                ui.button('Install', icon='download', on_click=install_plugin_handler).props('unelevated size=sm color=primary rounded')
+
+                search.on('update:model-value', lambda _: ui.timer(0.05, load_shop, once=True))
                 ui.timer(0.1, load_shop, once=True)
 
+
 def render_plugin_manager():
-    """Wird vom Settings-Tab aufgerufen. Wir leiten einfach auf die Hauptseite um oder rendern inline."""
+    """Called from the settings page."""
     render_plugins_page()
