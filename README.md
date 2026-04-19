@@ -58,7 +58,7 @@ cp docker/.env.dev docker/.env
 docker compose -f docker/docker-compose.dev.yml up -d --build
 
 # 4. Access at http://localhost:8081
-# Default credentials: admin / admin
+# Default credentials: admin / lyndrix
 ```
 
 The `.dev` directory automatically stores persistent state:
@@ -72,6 +72,42 @@ Your Git repository remains clean—all state is in `.dev/` which is in `.gitign
 ### Production Deployment
 
 See [Installation & Deployment](docs/deployment.md) for comprehensive production setup guides including Docker, Kubernetes, reverse proxy configuration, and security hardening.
+
+### Release And Image Tags
+
+Lyndrix uses the common maintainer pattern of one rolling development tag and one rolling stable tag:
+
+- `ghcr.io/<owner>/lyndrix-core:edge` tracks the latest successful build from `main`
+- `ghcr.io/<owner>/lyndrix-core:latest` tracks the newest stable release tag
+- `ghcr.io/<owner>/lyndrix-core:<major>.<minor>.<patch>` is immutable for each release
+- `ghcr.io/<owner>/lyndrix-core:<major>.<minor>` is a rolling convenience tag for the current patch line
+- `ghcr.io/<owner>/lyndrix-core:sha-<commit>` gives you an exact build reference
+
+Recommended release flow:
+
+```bash
+# 1. Finish work and merge to main
+git checkout main
+git pull --ff-only
+
+# 2. Create a stable release tag
+git tag -a v0.3.0 -m "Lyndrix Core v0.3.0"
+git push origin main
+git push origin v0.3.0
+```
+
+What the workflow does after that:
+
+- every push to `main` updates `edge`
+- every stable tag like `v0.3.0` publishes `0.3.0`, `0.3`, `sha-...`, and updates `latest`
+- prerelease tags like `v0.4.0-rc.1` publish prerelease image tags but do not move `latest`
+
+Practical rules:
+
+- use `main` as the integration branch
+- cut stable releases only with `vX.Y.Z`
+- use `vX.Y.Z-rc.1`, `vX.Y.Z-beta.1`, or similar for prereleases
+- never move `latest` by hand; let the release tag do it
 
 ---
 

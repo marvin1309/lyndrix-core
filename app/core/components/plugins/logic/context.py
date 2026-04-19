@@ -1,3 +1,6 @@
+from collections import defaultdict
+import threading
+
 import hvac
 from core.bus import bus as global_bus
 from core.logger import get_logger
@@ -8,6 +11,8 @@ class ModuleContext:
     """
     Der isolierte Sandkasten für JEDES Modul (Core & Plugin).
     """
+    _vault_write_locks = defaultdict(threading.RLock)
+
     def __init__(self, manifest: ModuleManifest):
         self.manifest = manifest
         # Logger zeigt z.B. [Core: IAM] oder [Plugin: Discord]
@@ -32,6 +37,11 @@ class ModuleContext:
             global_bus.emit(topic, payload)
         else:
             self.log.warning(f"PERMISSION: Module not allowed to emit '{topic}'!")
+
+    def create_task(self, coro, *, name: str = None):
+        """Create an observed background task owned by this module."""
+        task_name = name or f"module:{self.manifest.id}"
+        return global_bus.create_tracked_task(coro, name=task_name)
 
     # --- VAULT PROXY (Hier war der Einrückungsfehler) ---
 
@@ -67,25 +77,26 @@ class ModuleContext:
             
         path = self._get_vault_path()
         try:
-            # 1. Bestehende Daten laden (um sie beim Update nicht zu löschen)
-            current_data = {}
-            try:
-                response = vault_instance.client.secrets.kv.v2.read_secret_version(
-                    path=path, mount_point="lyndrix"
+            lock = self._vault_write_locks[path]
+            with lock:
+                # Serialize read-modify-write updates per Vault path so concurrent
+                # plugin writes do not overwrite each other.
+                current_data = {}
+                try:
+                    response = vault_instance.client.secrets.kv.v2.read_secret_version(
+                        path=path, mount_point="lyndrix"
+                    )
+                    current_data = response['data']['data']
+                except Exception:
+                    pass
+
+                current_data[key] = value
+
+                vault_instance.client.secrets.kv.v2.create_or_update_secret(
+                    path=path,
+                    mount_point="lyndrix",
+                    secret=current_data
                 )
-                current_data = response['data']['data']
-            except Exception:
-                pass # Pfad existiert noch nicht
-
-            # 2. Wert im Dictionary aktualisieren
-            current_data[key] = value
-
-            # 3. Komplettes Dictionary zurückschreiben (KV-V2 Standard)
-            vault_instance.client.secrets.kv.v2.create_or_update_secret(
-                path=path,
-                mount_point="lyndrix",
-                secret=current_data
-            )
             self.log.info(f"SUCCESS: Secret '{key}' persisted securely at '{path}'.")
             return True
         except Exception as e:

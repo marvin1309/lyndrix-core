@@ -13,6 +13,19 @@
 		{
 			"name": "lyndrix-discord-notifier",
 			"path": "../lyndrix-discord-notifier"
+		},
+		{
+			"path": "../../iac-environment/ansible-ci-image"
+		},
+		{
+			"path": "../../iac-environment/iac-ansible-automation"
+		},
+		{
+			"path": "../../iac-environment/aac-template-engine"
+		},
+		{
+			"name": "lyndrix-meeting-bingo",
+			"path": "../lyndrix-meeting-bingo"
 		}
 	],
 	"settings": {

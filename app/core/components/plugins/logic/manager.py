@@ -3,22 +3,22 @@ import sys
 import importlib
 from pathlib import Path
 import inspect
-import hashlib
-import shutil
-import subprocess
-import tempfile
 import asyncio
+from typing import List
+from sqlalchemy import inspect as sqlalchemy_inspect, text
 from core.logger import get_logger
 from core.bus import bus
 from core.components.database.logic.db_service import db_instance
 from .models import ModuleManifest, PluginState
 from .context import ModuleContext
+from config import settings
 
 log = get_logger("Core:ModuleManager")
 
 class ModuleManager:
     def __init__(self):
         self.registry = {}
+        self._plugin_state_schema_ready = False
         current_file_path = os.path.abspath(__file__)
         self.base_path = os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(os.path.dirname(current_file_path)))))
         # Subscribe to filesystem change events from the PluginService
@@ -44,10 +44,11 @@ class ModuleManager:
         
         # --- THE CRITICAL TIMING FIX ---
         # Now that the registry is fully populated, we can safely read the DB states.
-        # Since BootService waits for the DB to connect before calling load_all, 
-        # we know the database is ready here.
         if db_instance.is_connected:
-            asyncio.create_task(self._activate_saved_plugins())
+            bus.create_tracked_task(
+                self._activate_saved_plugins(),
+                name="module_manager:activate_plugins"
+            )
         else:
             log.warning("PLUGIN_MANAGER: DB not connected at end of load_all. Falling back to bus listener.")
             bus.subscribe("db:connected")(self._activate_saved_plugins)
@@ -66,42 +67,18 @@ class ModuleManager:
             if os.path.isdir(item_path):
                 entrypoint_path = os.path.join(item_path, "entrypoint.py")
                 
-                # --- SELF-BOOTSTRAP DEPENDENCIES ---
-                # If a plugin has requirements.txt but no vendor folder, install them now.
-                # This blocks startup but ensures dependencies are ready before import.
+                # --- VENDOR CHECK: Validate vendor directory exists ---
+                # Dependencies must be installed during plugin install/build time,
+                # NOT at boot. We only verify the vendor dir is present.
                 if is_plugin:
                     req_file = Path(item_path) / "requirements.txt"
                     vendor_dir = Path(item_path) / "vendor"
-                    receipt_file = vendor_dir / ".receipt"
 
-                    if req_file.exists():
-                        with open(req_file, 'rb') as f:
-                            current_checksum = hashlib.sha256(f.read()).hexdigest()
-                        
-                        last_install_checksum = ""
-                        if receipt_file.exists():
-                            with open(receipt_file, 'r') as f:
-                                last_install_checksum = f.read().strip()
-
-                        if current_checksum != last_install_checksum:
-                            log.info(f"VENDORS: Requirements changed for '{item}'. Re-installing dependencies...")
-                            if vendor_dir.exists():
-                                shutil.rmtree(vendor_dir)
-                            
-                            vendor_dir.mkdir()
-                            try:
-                                subprocess.run(
-                                    [sys.executable, "-m", "pip", "install", "--target", str(vendor_dir), "-r", str(req_file)],
-                                    capture_output=True, text=True, check=True, encoding='utf-8'
-                                )
-                                with open(receipt_file, 'w') as f:
-                                    f.write(current_checksum)
-                                log.info(f"VENDORS: Bootstrap complete for '{item}'.")
-                            except (subprocess.CalledProcessError, FileNotFoundError) as e:
-                                stderr = getattr(e, 'stderr', str(e))
-                                log.error(f"PIP_ERROR: Failed to bootstrap dependencies for '{item}': {stderr}")
-                                if vendor_dir.exists():
-                                    shutil.rmtree(vendor_dir) # Clean up failed install
+                    if req_file.exists() and not vendor_dir.exists():
+                        log.warning(
+                            f"VENDORS: Plugin '{item}' has requirements.txt but no vendor directory. "
+                            f"Dependencies may be missing. Re-install the plugin to resolve."
+                        )
 
                 if not os.path.exists(entrypoint_path):
                     continue
@@ -147,6 +124,13 @@ class ModuleManager:
             raw_manifest = module.manifest
             manifest = ModuleManifest(**raw_manifest) if isinstance(raw_manifest, dict) else raw_manifest
 
+            # Validate manifest constraints
+            if is_plugin:
+                issues = self._validate_manifest(manifest)
+                if issues:
+                    log.warning(f"VALIDATION: Plugin '{module_name}' has issues: {'; '.join(issues)}")
+                    # Non-fatal: load but mark as degraded
+                    
             if manifest.id in self.registry:
                 return False
 
@@ -205,7 +189,10 @@ class ModuleManager:
         
         if hasattr(module, 'setup'):
             if inspect.iscoroutinefunction(module.setup):
-                asyncio.create_task(self._safe_async_setup(module, ctx, module_id))
+                bus.create_tracked_task(
+                    self._safe_async_setup(module, ctx, module_id),
+                    name=f"module_setup:{module_id}"
+                )
             else:
                 module.setup(ctx)
                 entry["status"] = "active"
@@ -226,22 +213,44 @@ class ModuleManager:
             log.error("PLUGIN_MANAGER: SessionLocal missing during DB activation.")
             return
 
+        self._ensure_plugin_state_schema()
+
+        enabled_plugin_ids = []
+
         with db_instance.SessionLocal() as session:
             for module_id, entry in self.registry.items():
                 if entry["manifest"].type == "CORE":
                     continue
+                manifest = entry["manifest"]
                 
                 # Fetch state from DB
                 db_state = session.query(PluginState).filter(PluginState.module_id == module_id).first()
                 
-                # If it doesn't exist in DB, create it as disabled
+                # If it doesn't exist in DB, create it from manifest defaults.
                 if not db_state:
-                    db_state = PluginState(module_id=module_id, is_active=False)
+                    db_state = PluginState(
+                        module_id=module_id,
+                        is_active=manifest.auto_enable_on_install,
+                        installed_version=manifest.version,
+                        desired_version=manifest.version,
+                        repo_url=manifest.repo_url,
+                        auto_update=settings.LYNDRIX_PLUGINS_AUTO_UPDATE,
+                    )
                     session.add(db_state)
-                    session.commit()
+                else:
+                    db_state.installed_version = manifest.version
+                    db_state.repo_url = manifest.repo_url or db_state.repo_url
+                    if not db_state.desired_version:
+                        db_state.desired_version = manifest.version
 
                 if db_state.is_active:
-                    if entry.get("status") != "active":
+                    enabled_plugin_ids.append(module_id)
+                    if not self._check_dependencies_met(manifest):
+                        entry["status"] = "blocked"
+                        log.warning(
+                            f"DB_RESTORE: Plugin '{module_id}' is enabled but waiting for dependencies."
+                        )
+                    elif entry.get("status") != "active":
                         log.info(f"DB_RESTORE: Activating plugin '{module_id}'")
                         self._execute_setup(module_id)
                 else:
@@ -249,10 +258,40 @@ class ModuleManager:
                         log.info(f"DB_RESTORE: Plugin '{module_id}' remains disabled.")
                         entry["status"] = "disabled"
 
+            session.commit()
+
+        pending_enabled = set(enabled_plugin_ids)
+        while pending_enabled:
+            progressed = False
+            for module_id in list(pending_enabled):
+                entry = self.registry.get(module_id)
+                if not entry or entry.get("status") == "active":
+                    pending_enabled.discard(module_id)
+                    continue
+
+                manifest = entry["manifest"]
+                if not self._check_dependencies_met(manifest):
+                    entry["status"] = "blocked"
+                    continue
+
+                log.info(f"DB_RESTORE: Activating dependency-ready plugin '{module_id}'")
+                entry["status"] = "initializing"
+                self._execute_setup(module_id)
+                pending_enabled.discard(module_id)
+                progressed = True
+
+            if not progressed:
+                break
+
+        # After restoring known plugins, reconcile desired plugins from config
+        await self.reconcile_desired_plugins()
+
     def toggle_module(self, module_id: str, active: bool):
         """Toggles the module state in RAM and persists it to the DB."""
         if module_id not in self.registry:
             return False
+
+        self._ensure_plugin_state_schema()
             
         # 1. Persist to DB
         if db_instance.SessionLocal:
@@ -269,17 +308,24 @@ class ModuleManager:
                 log.error(f"DB_ERROR: Failed to save toggle state: {e}")
                 return False
 
-        # 2. Update RAM status
+        # 2. Update RAM status and execute lifecycle hooks
         entry = self.registry[module_id]
-        entry["status"] = "active" if active else "disabled"
-        status_icon = "🟢" if active else "🔴"
-        log.info(f"MODULE: {status_icon} '{module_id}' is now {'ACTIVE' if active else 'DISABLED'}")
-        
-        # 3. Boot it up if newly activated
+
         if active:
-            self._execute_setup(module_id)
+            manifest = entry["manifest"]
+            if not self._check_dependencies_met(manifest):
+                entry["status"] = "blocked"
+                log.warning(
+                    f"MODULE: Plugin '{module_id}' was enabled but is waiting for dependencies."
+                )
+            else:
+                entry["status"] = "initializing"
+                self._execute_setup(module_id)
+                log.info(f"MODULE: 🟢 '{module_id}' is now ACTIVE")
             bus.emit("ui:needs_refresh", {"reason": f"Plugin {module_id} activated."})
         else:
+            entry["status"] = "disabled"
+            log.info(f"MODULE: 🔴 '{module_id}' is now DISABLED")
             # "Soft" unload: remove UI and call teardown, but keep module in memory.
             self._teardown_ui(module_id)
             entry = self.registry.get(module_id)
@@ -287,7 +333,10 @@ class ModuleManager:
                 log.info(f"TEARDOWN: Executing teardown function for '{module_id}'")
                 teardown_func = entry["module"].teardown
                 if inspect.iscoroutinefunction(teardown_func):
-                    asyncio.create_task(teardown_func(entry["context"]))
+                    bus.create_tracked_task(
+                        teardown_func(entry["context"]),
+                        name=f"module_teardown:{module_id}"
+                    )
                 else:
                     teardown_func(entry["context"])
 
@@ -360,5 +409,119 @@ class ModuleManager:
             
         bus.emit("ui:needs_refresh", {"reason": f"Plugin {module_id} reloaded."})
         return success
+
+    def _validate_manifest(self, manifest: ModuleManifest) -> List[str]:
+        """Validate manifest constraints. Returns list of issues (empty = valid)."""
+        issues = []
+        if manifest.min_core_version:
+            from core.api import __api_version__
+            if manifest.min_core_version > __api_version__:
+                issues.append(
+                    f"Requires core API >= {manifest.min_core_version}, "
+                    f"but running {__api_version__}"
+                )
+        if manifest.dependencies:
+            for dep in manifest.dependencies:
+                if dep.id not in self.registry:
+                    issues.append(f"Missing dependency: {dep.id}")
+        return issues
+
+    def _check_dependencies_met(self, manifest: ModuleManifest) -> bool:
+        """Check if all plugin dependencies are loaded and active."""
+        if not manifest.dependencies:
+            return True
+        for dep in manifest.dependencies:
+            entry = self.registry.get(dep.id)
+            if not entry or entry.get("status") != "active":
+                return False
+        return True
+
+    async def reconcile_desired_plugins(self):
+        """Auto-install/update plugins from LYNDRIX_PLUGINS_DESIRED config.
+        
+        Called after DB connects. Compares desired list against installed
+        PluginState records and triggers installs/updates as needed.
+        """
+        desired = settings.desired_plugin_specs
+        if not desired:
+            return
+
+        self._ensure_plugin_state_schema()
+
+        from .plugin_service import plugin_service
+
+        log.info(f"RECONCILE: Checking {len(desired)} desired plugin(s)...")
+
+        for spec in desired:
+            url = spec["url"]
+            version = spec["version"]
+            try:
+                user, repo = plugin_service._extract_repo_info(url)
+            except Exception as e:
+                log.warning(f"RECONCILE: Skipping invalid URL '{url}': {e}")
+                continue
+
+            safe_name = repo.replace("-", "_")
+            plugin_path = plugin_service.plugin_dir / safe_name
+
+            # Check DB state for auto_update preference
+            should_update = settings.LYNDRIX_PLUGINS_AUTO_UPDATE
+            state = None
+            if db_instance.SessionLocal:
+                with db_instance.SessionLocal() as session:
+                    state = session.query(PluginState).filter(
+                        (PluginState.repo_url == url) |
+                        (PluginState.module_id.like(f"%{safe_name}%"))
+                    ).first()
+                    if state and state.auto_update is not None:
+                        should_update = state.auto_update
+                    if state:
+                        state.repo_url = url
+                        state.desired_version = version
+                        session.commit()
+
+            if not plugin_path.exists():
+                log.info(f"RECONCILE: Installing missing desired plugin '{repo}' at '{version}'...")
+                await plugin_service.install_plugin(url, version=version)
+            elif version != "latest" and (not state or state.installed_version != version):
+                log.info(f"RECONCILE: Updating desired plugin '{repo}' to pinned version '{version}'...")
+                await plugin_service.install_plugin(url, version=version, upgrade=True)
+            elif version == "latest" and should_update:
+                log.info(f"RECONCILE: Updating desired plugin '{repo}' to latest...")
+                await plugin_service.install_plugin(url, version=version, upgrade=True)
+            else:
+                log.debug(f"RECONCILE: Plugin '{repo}' already satisfies desired state.")
+
+        log.info("RECONCILE: Desired plugin check complete.")
+
+    def _ensure_plugin_state_schema(self):
+        """Apply additive schema upgrades for plugin_states on existing installs."""
+        if self._plugin_state_schema_ready or not db_instance.engine:
+            return
+
+        required_columns = {
+            "installed_version": "VARCHAR(50) NULL",
+            "desired_version": "VARCHAR(50) NULL",
+            "repo_url": "VARCHAR(500) NULL",
+            "auto_update": "BOOLEAN DEFAULT 0",
+        }
+
+        with db_instance.engine.begin() as connection:
+            PluginState.__table__.create(bind=connection, checkfirst=True)
+            inspector = sqlalchemy_inspect(connection)
+            existing_columns = {
+                column["name"] for column in inspector.get_columns(PluginState.__tablename__)
+            }
+
+            for column_name, ddl in required_columns.items():
+                if column_name not in existing_columns:
+                    log.warning(
+                        f"PLUGIN_MANAGER: Migrating plugin_states table, adding column '{column_name}'."
+                    )
+                    connection.execute(
+                        text(f"ALTER TABLE {PluginState.__tablename__} ADD COLUMN {column_name} {ddl}")
+                    )
+
+        self._plugin_state_schema_ready = True
 
 module_manager = ModuleManager()
