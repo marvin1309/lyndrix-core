@@ -1,50 +1,96 @@
 import asyncio
 import inspect
+import weakref
+from typing import Dict, List, Callable, Set
 from core.logger import get_logger
+
 
 class GlobalEventBus:
     def __init__(self):
-        self.subscribers = {}
+        self.subscribers: Dict[str, List[Callable]] = {}
         self.log = get_logger("Core:EventBus")
-        # Liste der Topics, die das INFO-Log nicht verstopfen sollen
+        self._active_tasks: Set[asyncio.Task] = set()
+        # Topics that should not spam INFO logs
         self._noise_topics = ["system:metrics_update"]
-        # Liste der Topics, die sensible Daten enthalten (nicht loggen!)
+        # Topics with sensitive payloads (never log data)
         self._sensitive_topics = ["vault:unseal_requested", "vault:init_requested"]
 
     def subscribe(self, topic: str):
-        """Ermöglicht die Nutzung als @bus.subscribe('topic') Decorator."""
+        """Decorator: @bus.subscribe('topic') registers a callback."""
         def decorator(callback):
             if topic not in self.subscribers:
                 self.subscribers[topic] = []
             self.subscribers[topic].append(callback)
-            self.log.debug(f"SUBSCRIBE: New Subscriber registered for: {topic} ({callback.__name__})")
+            self.log.debug(f"SUBSCRIBE: Registered for: {topic} ({callback.__name__})")
             return callback
         return decorator
 
     def emit(self, topic: str, payload: dict = None):
-        """Sendet ein Event an alle Subscriber (Enterprise Format)."""
-        if payload is None: 
+        """Dispatches an event to all subscribers, tracking async tasks."""
+        if payload is None:
             payload = {}
-        
-        # Metriken im Hintergrund lassen
+
         if topic == "system:metrics_update":
-            self.log.debug(f"METRICS: {topic} | Payload: {payload}")
+            self.log.debug(f"METRICS: {topic}")
         elif topic in self._sensitive_topics:
-            # Sensible Daten ausblenden!
             self.log.info(f"EVENT: {topic} | Data: [REDACTED]")
         else:
-            # Professionelles Tagging statt Emojis
             self.log.info(f"EVENT: {topic} | Data: {payload}")
-        
+
         if topic in self.subscribers:
             for callback in self.subscribers[topic]:
                 try:
                     if inspect.iscoroutinefunction(callback):
-                        asyncio.create_task(callback(payload))
+                        task = asyncio.create_task(
+                            callback(payload),
+                            name=f"bus:{topic}:{callback.__name__}"
+                        )
+                        self._track_task(task, topic, callback.__name__)
                     else:
                         callback(payload)
                 except Exception as e:
-                    self.log.error(f"ERROR: Error in callback for '{topic}': {e}", exc_info=True)
+                    self.log.error(f"ERROR: Callback '{callback.__name__}' for '{topic}' raised: {e}", exc_info=True)
+
+    def _track_task(self, task: asyncio.Task, topic: str, callback_name: str):
+        """Tracks an async task and logs failures via done callback."""
+        self._active_tasks.add(task)
+
+        def _on_done(t: asyncio.Task):
+            self._active_tasks.discard(t)
+            if t.cancelled():
+                self.log.debug(f"TASK_CANCELLED: {topic}:{callback_name}")
+                return
+            exc = t.exception()
+            if exc:
+                self.log.error(
+                    f"TASK_FAILED: Async handler '{callback_name}' for '{topic}' raised: {exc}",
+                    exc_info=(type(exc), exc, exc.__traceback__)
+                )
+
+        task.add_done_callback(_on_done)
+
+    def create_tracked_task(self, coro, *, name: str = None) -> asyncio.Task:
+        """Creates and tracks an asyncio task with failure logging.
+        
+        Use this instead of bare asyncio.create_task() for observability.
+        """
+        task = asyncio.create_task(coro, name=name)
+        self._active_tasks.add(task)
+
+        def _on_done(t: asyncio.Task):
+            self._active_tasks.discard(t)
+            if t.cancelled():
+                return
+            exc = t.exception()
+            if exc:
+                self.log.error(
+                    f"TASK_FAILED: '{name or 'unnamed'}' raised: {exc}",
+                    exc_info=(type(exc), exc, exc.__traceback__)
+                )
+
+        task.add_done_callback(_on_done)
+        return task
+
 
 bus = GlobalEventBus()
 

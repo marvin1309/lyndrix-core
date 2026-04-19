@@ -46,4 +46,4 @@ def render_login_page():
             ui.button('Einloggen', on_click=try_login).classes('w-full py-4 bg-indigo-600 rounded-xl font-bold')
             
             with ui.row().classes('items-center gap-2 opacity-50 mt-2'):
-                ui.label('Standard: admin / admin').classes('text-[10px] uppercase tracking-widest')
+                ui.label('Standard: admin / lyndrix').classes('text-[10px] uppercase tracking-widest')

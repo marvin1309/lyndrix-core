@@ -13,7 +13,10 @@ manifest = ModuleManifest(
     version="3.1.0",
     icon="account_tree",
     type="PLUGIN",
+    min_core_version="1.0.0",
+    auto_enable_on_install=False,
     ui_route="/iac",
+    dependencies=[{"id": "lyndrix.service.git", "version_constraint": ">=0.1.1"}],
     permissions={"subscribe": ["git:status_update", "vault:ready_for_data"], "emit": ["git:sync", "git:commit_push"]}
 )
 

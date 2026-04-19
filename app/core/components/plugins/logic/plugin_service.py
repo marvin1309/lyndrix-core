@@ -4,6 +4,7 @@ import shutil
 import asyncio
 import zipfile
 import time
+import tempfile
 import httpx
 import re
 from pathlib import Path
@@ -94,8 +95,9 @@ class PluginService:
         safe_repo_name = repo.replace("-", "_")
         plugin_path = self.plugin_dir / safe_repo_name
         
-        # Use a hidden staging directory to prevent Uvicorn hot-reload from interrupting the installation
-        staging_base = self.plugin_dir / f".staging_{safe_repo_name}"
+        # Stage outside the watched plugin directory so dev reloads only happen
+        # after the final move into /app/plugins.
+        staging_base = Path(tempfile.mkdtemp(prefix=f"lyndrix_plugin_{safe_repo_name}_"))
         zip_path = staging_base / f"{repo}.zip"
         extracted_dir = None
         
@@ -106,10 +108,6 @@ class PluginService:
         if plugin_path.exists() and not upgrade:
             log.warning(f"CONFLICT: Plugin directory '{safe_repo_name}' already exists. Operation aborted")
             return False
-
-        if staging_base.exists():
-            shutil.rmtree(staging_base, ignore_errors=True)
-        staging_base.mkdir(parents=True, exist_ok=True)
 
         try:
             async with httpx.AsyncClient(follow_redirects=True, headers=self._get_headers()) as client:
@@ -145,10 +143,15 @@ class PluginService:
                 with open(zip_path, 'wb') as f:
                     f.write(response.content)
 
-            # 3. Extraction into Staging
+            # 3. Safe Extraction into Staging (ZIP Slip protected)
             log.info("FILESYSTEM: Extracting archive into hidden staging area...")
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
                 root_folder = zip_ref.namelist()[0].split('/')[0]
+                # Validate all paths stay within staging_base
+                for member in zip_ref.namelist():
+                    member_path = (staging_base / member).resolve()
+                    if not str(member_path).startswith(str(staging_base.resolve())):
+                        raise ValueError(f"SECURITY: ZIP contains path traversal entry: {member}")
                 zip_ref.extractall(staging_base)
                 extracted_dir = staging_base / root_folder
             
@@ -163,7 +166,7 @@ class PluginService:
                     shutil.rmtree(backup_path, ignore_errors=True)
                 plugin_path.rename(backup_path)
             
-            extracted_dir.rename(plugin_path)
+            shutil.move(str(extracted_dir), str(plugin_path))
             
             if backup_path.exists():
                 shutil.rmtree(backup_path, ignore_errors=True)
@@ -191,26 +194,47 @@ class PluginService:
             if staging_base.exists():
                 shutil.rmtree(staging_base, ignore_errors=True)
 
-    async def _install_requirements(self, plugin_path: Path):
+    async def _install_requirements(self, plugin_path: Path, timeout: int = 300):
+        """Installs plugin vendor dependencies with a timeout."""
         req_file = plugin_path / "requirements.txt"
-        if req_file.exists():
-            log.info(f"DEPENDENCIES: Installing requirements for {plugin_path.name} into private vendor directory...")
-            vendor_dir = plugin_path / "vendor"
-            vendor_dir.mkdir(exist_ok=True)
+        if not req_file.exists():
+            return
 
+        # Validate requirements file doesn't contain suspicious entries
+        req_content = req_file.read_text()
+        for line in req_content.splitlines():
+            stripped = line.strip()
+            if stripped and not stripped.startswith('#'):
+                # Block entries that look like local paths or URLs (potential injection)
+                if stripped.startswith('/') or stripped.startswith('..'):
+                    log.error(f"SECURITY: Blocked suspicious requirement entry: {stripped}")
+                    return
+
+        log.info(f"DEPENDENCIES: Installing requirements for {plugin_path.name} into private vendor directory...")
+        vendor_dir = plugin_path / "vendor"
+        vendor_dir.mkdir(exist_ok=True)
+
+        try:
             process = await asyncio.create_subprocess_exec(
                 sys.executable, "-m", "pip", "install",
                 "--target", str(vendor_dir),
+                "--no-input",
                 "-r", str(req_file),
                 stdout=asyncio.subprocess.PIPE,
                 stderr=asyncio.subprocess.PIPE
             )
-            stdout, stderr = await process.communicate()
+            stdout, stderr = await asyncio.wait_for(
+                process.communicate(), timeout=timeout
+            )
             if process.returncode != 0:
-                log.error(f"PIP_ERROR: Dependency installation failed: {stderr.decode()}")
+                log.error(f"PIP_ERROR: Dependency installation failed: {stderr.decode()[:500]}")
                 shutil.rmtree(vendor_dir, ignore_errors=True)
             else:
                 log.info("SUCCESS: All dependencies resolved into private vendor directory.")
+        except asyncio.TimeoutError:
+            log.error(f"TIMEOUT: pip install for {plugin_path.name} exceeded {timeout}s. Killing process.")
+            process.kill()
+            shutil.rmtree(vendor_dir, ignore_errors=True)
 
     async def uninstall_plugin(self, module_id: str, repo_name: str):
         """Löscht den Plugin-Ordner physisch."""
