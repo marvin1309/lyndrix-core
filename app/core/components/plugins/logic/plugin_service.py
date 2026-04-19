@@ -93,20 +93,23 @@ class PluginService:
         # FIX: Python-kompatiblen Ordnernamen erzwingen (keine Bindestriche)
         safe_repo_name = repo.replace("-", "_")
         plugin_path = self.plugin_dir / safe_repo_name
-        zip_path = self.plugin_dir / f"{repo}.zip"
+        
+        # Use a hidden staging directory to prevent Uvicorn hot-reload from interrupting the installation
+        staging_base = self.plugin_dir / f".staging_{safe_repo_name}"
+        zip_path = staging_base / f"{repo}.zip"
         extracted_dir = None
         
         action_name = "UPGRADE" if upgrade else "INSTALL"
         log.info(f"{action_name}: Requesting plugin '{repo}' version '{version}' from {github_url}")
         bus.emit("plugin:install_started", {"repo": repo, "version": version})
 
-        if plugin_path.exists():
-            if upgrade:
-                log.info(f"UPGRADE: Removing old directory {plugin_path}")
-                shutil.rmtree(plugin_path)
-            else:
-                log.warning(f"CONFLICT: Plugin directory '{safe_repo_name}' already exists. Operation aborted")
-                return False
+        if plugin_path.exists() and not upgrade:
+            log.warning(f"CONFLICT: Plugin directory '{safe_repo_name}' already exists. Operation aborted")
+            return False
+
+        if staging_base.exists():
+            shutil.rmtree(staging_base, ignore_errors=True)
+        staging_base.mkdir(parents=True, exist_ok=True)
 
         try:
             async with httpx.AsyncClient(follow_redirects=True, headers=self._get_headers()) as client:
@@ -142,25 +145,30 @@ class PluginService:
                 with open(zip_path, 'wb') as f:
                     f.write(response.content)
 
-            # 3. Extraction
-            log.info("FILESYSTEM: Extracting archive and cleaning up")
+            # 3. Extraction into Staging
+            log.info("FILESYSTEM: Extracting archive into hidden staging area...")
             with zipfile.ZipFile(zip_path, 'r') as zip_ref:
-                # GitHub-Archive haben immer einen Root-Ordner wie 'repo-branchname'
                 root_folder = zip_ref.namelist()[0].split('/')[0]
-                extracted_dir = self.plugin_dir / root_folder
-                
-                # Cleanup alter Extraktionen falls vorhanden
-                if extracted_dir.exists():
-                    shutil.rmtree(extracted_dir)
-                    
-                zip_ref.extractall(self.plugin_dir)
+                zip_ref.extractall(staging_base)
+                extracted_dir = staging_base / root_folder
+            
+            # 4. Dependency Management in Staging
+            await self._install_requirements(extracted_dir)
+
+            # 5. ATOMIC SWAP (Protects against dev server hot-reload crashes)
+            backup_path = self.plugin_dir / f".backup_{safe_repo_name}"
+            if plugin_path.exists():
+                log.info(f"UPGRADE: Swapping old directory {plugin_path} for new version...")
+                if backup_path.exists():
+                    shutil.rmtree(backup_path, ignore_errors=True)
+                plugin_path.rename(backup_path)
             
             extracted_dir.rename(plugin_path)
+            
+            if backup_path.exists():
+                shutil.rmtree(backup_path, ignore_errors=True)
 
-            # 4. Dependency Management
-            await self._install_requirements(plugin_path)
-
-            # 5. INTEGRATION: Announce the change via the event bus.
+            # 6. INTEGRATION: Announce the change via the event bus.
             # The ModuleManager will be listening for this.
             bus.emit("plugin:files_changed", {"action": "install", "name": safe_repo_name})
             log.info(f"SUCCESS: Plugin files for '{repo}' are in place. Notifying system.")
@@ -169,15 +177,19 @@ class PluginService:
 
         except Exception as e:
             log.error(f"INSTALL_ERROR: Installation failed for {repo}: {str(e)}", exc_info=True)
-            if plugin_path.exists():
-                shutil.rmtree(plugin_path)
-            if extracted_dir and extracted_dir.exists():
-                shutil.rmtree(extracted_dir)
+            
+            # Revert from backup if swap failed midway
+            backup_path = self.plugin_dir / f".backup_{safe_repo_name}"
+            if backup_path.exists() and not plugin_path.exists():
+                backup_path.rename(plugin_path)
+                
+            if plugin_path.exists() and not upgrade:
+                shutil.rmtree(plugin_path, ignore_errors=True)
             bus.emit("plugin:install_failed", {"repo": repo, "error": str(e)})
             return False
         finally:
-            if zip_path.exists():
-                zip_path.unlink()
+            if staging_base.exists():
+                shutil.rmtree(staging_base, ignore_errors=True)
 
     async def _install_requirements(self, plugin_path: Path):
         req_file = plugin_path / "requirements.txt"

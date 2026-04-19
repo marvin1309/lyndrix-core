@@ -219,12 +219,10 @@ def render_plugins_page():
                                                         
                                                         async def run_update(ver, gurl=g_url):
                                                             ui.notify(f"Installiere {ver}...", type="ongoing")
-                                                            async def _bg_task():
-                                                                if await plugin_service.install_plugin(gurl, version=ver, upgrade=True):
-                                                                    ui.notify("Update erfolgreich! UI wird neu geladen...", type="positive")
-                                                                else:
-                                                                    ui.notify("Fehler beim Update.", type="negative")
-                                                            asyncio.create_task(_bg_task())
+                                                            if await plugin_service.install_plugin(gurl, version=ver, upgrade=True):
+                                                                ui.notify("Update erfolgreich! UI wird neu geladen...", type="positive")
+                                                            else:
+                                                                ui.notify("Fehler beim Update.", type="negative")
 
                                                         ui.button(icon='cloud_download', on_click=lambda v=version_select: run_update(v.value)).props('flat round size=sm color=warning').tooltip("Version installieren")
 
@@ -317,12 +315,10 @@ def render_plugins_page():
                                             async def handler():
                                                 v = vs_element.value
                                                 ui.notify(f"Update {url} auf v{v}...", type='ongoing')
-                                                async def _bg_task():
-                                                    if await plugin_service.install_plugin(url, version=v, upgrade=True):
-                                                        ui.notify("Update erfolgreich! UI wird neu geladen...", type="positive")
-                                                    else:
-                                                        ui.notify("Fehler beim Update.", type="negative")
-                                                asyncio.create_task(_bg_task())
+                                                if await plugin_service.install_plugin(url, version=v, upgrade=True):
+                                                    ui.notify("Update erfolgreich! UI wird neu geladen...", type="positive")
+                                                else:
+                                                    ui.notify("Fehler beim Update.", type="negative")
                                             return handler
                                             
                                         with ui.row().classes('items-center gap-2'):
