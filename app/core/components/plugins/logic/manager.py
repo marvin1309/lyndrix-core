@@ -24,6 +24,23 @@ class ModuleManager:
         # Subscribe to filesystem change events from the PluginService
         bus.subscribe("plugin:files_changed")(self._handle_plugin_change)
 
+    def _find_plugin_id_by_folder(self, module_name: str):
+        """Resolve an already-loaded plugin id from its folder/package name."""
+        for module_id, entry in self.registry.items():
+            manifest = entry.get("manifest")
+            module = entry.get("module")
+            if not manifest or manifest.type != "PLUGIN" or not module:
+                continue
+
+            try:
+                folder_name = Path(module.__file__).parent.name
+            except Exception:
+                folder_name = module.__name__.split('.')[-2]
+
+            if folder_name == module_name:
+                return module_id
+        return None
+
 
     def load_all(self):
         """Scans directories and loads all valid core components and plugins."""
@@ -100,6 +117,7 @@ class ModuleManager:
     def load_module(self, module_name: str, is_plugin: bool = True):
         prefix = "plugins" if is_plugin else "core.components"
         full_module_path = f"{prefix}.{module_name}.entrypoint"
+        importlib.invalidate_caches()
         
         # --- VENDORING: Add plugin's private dependency folder to the Python path ---
         vendor_path_str = None
@@ -168,8 +186,23 @@ class ModuleManager:
         if action == "install":
             module_name = payload.get("name")
             log.info(f"MANAGER: Received install event for '{module_name}'. Loading module...")
-            self.load_module(module_name, is_plugin=True)
-            await self._activate_saved_plugins() # Re-check DB state for the new plugin
+            existing_module_id = self._find_plugin_id_by_folder(module_name)
+            if existing_module_id:
+                log.info(
+                    f"MANAGER: Plugin folder '{module_name}' is already loaded as '{existing_module_id}'. Reloading in-place."
+                )
+                await self.reload_module(existing_module_id)
+            else:
+                if not self.load_module(module_name, is_plugin=True):
+                    log.warning(
+                        f"MANAGER: Plugin '{module_name}' could not be loaded after install event."
+                    )
+                    return
+
+            resolved_module_id = self._find_plugin_id_by_folder(module_name)
+            if resolved_module_id:
+                self._persist_plugin_state(resolved_module_id, True)
+                await self._activate_saved_plugins()
         elif action == "uninstall":
             module_id = payload.get("id")
             self.unload_module(module_id)
@@ -179,14 +212,13 @@ class ModuleManager:
         entry = self.registry.get(module_id)
         if not entry:
             return
-            
-        # PREVENT DUPLICATE BOOT: Do not setup already active plugins
+
         if entry.get("status") == "active":
             return
 
         module = entry["module"]
         ctx = entry["context"]
-        
+
         if hasattr(module, 'setup'):
             if inspect.iscoroutinefunction(module.setup):
                 bus.create_tracked_task(
@@ -196,6 +228,36 @@ class ModuleManager:
             else:
                 module.setup(ctx)
                 entry["status"] = "active"
+
+    def _persist_plugin_state(self, module_id: str, is_active: bool):
+        """Persist plugin activation without duplicating lifecycle work."""
+        if module_id not in self.registry or not db_instance.SessionLocal:
+            return
+
+        self._ensure_plugin_state_schema()
+        manifest = self.registry[module_id]["manifest"]
+
+        try:
+            with db_instance.SessionLocal() as session:
+                db_state = session.query(PluginState).filter(PluginState.module_id == module_id).first()
+                if not db_state:
+                    db_state = PluginState(
+                        module_id=module_id,
+                        is_active=is_active,
+                        installed_version=manifest.version,
+                        desired_version=manifest.version,
+                        repo_url=manifest.repo_url,
+                        auto_update=settings.LYNDRIX_PLUGINS_AUTO_UPDATE,
+                    )
+                    session.add(db_state)
+                else:
+                    db_state.is_active = is_active
+                    db_state.installed_version = manifest.version
+                    db_state.desired_version = manifest.version
+                    db_state.repo_url = manifest.repo_url or db_state.repo_url
+                session.commit()
+        except Exception as e:
+            log.error(f"DB_ERROR: Failed to persist plugin state for '{module_id}': {e}")
 
     async def _safe_async_setup(self, module, ctx, module_id):
         try:
@@ -208,7 +270,7 @@ class ModuleManager:
     async def _activate_saved_plugins(self, payload=None):
         """Called when DB connects. Reads states and boots active plugins."""
         log.info("PLUGIN_MANAGER: Verifying plugin states from Database...")
-        
+
         if not db_instance.SessionLocal:
             log.error("PLUGIN_MANAGER: SessionLocal missing during DB activation.")
             return
@@ -221,12 +283,10 @@ class ModuleManager:
             for module_id, entry in self.registry.items():
                 if entry["manifest"].type == "CORE":
                     continue
+
                 manifest = entry["manifest"]
-                
-                # Fetch state from DB
                 db_state = session.query(PluginState).filter(PluginState.module_id == module_id).first()
-                
-                # If it doesn't exist in DB, create it from manifest defaults.
+
                 if not db_state:
                     db_state = PluginState(
                         module_id=module_id,
@@ -400,6 +460,7 @@ class ModuleManager:
         module_folder = entry["module"].__name__.split('.')[-2]
 
         self.unload_module(module_id)
+        importlib.invalidate_caches()
         await asyncio.sleep(0.1) # Brief pause to let things settle
         
         success = self.load_module(module_folder, is_plugin=is_plugin)

@@ -4,9 +4,9 @@ class UIStyles:
     # ----------------------------------------------------
     # 1. KARTEN & CONTAINER
     # ----------------------------------------------------
-    CARD_BASE = 'p-6 rounded-3xl shadow-lg border border-slate-200 dark:border-zinc-800 lyndrix-card'
-    CARD_GLASS = 'p-6 rounded-3xl shadow-lg border border-slate-200 dark:border-zinc-800 lyndrix-glass-card'
-    CARD_HIGHLIGHT = 'p-6 rounded-3xl border-2 border-primary bg-indigo-50/50 dark:bg-indigo-900/20'
+    CARD_BASE = 'p-6 rounded-none shadow-lg border border-slate-200 dark:border-zinc-800 lyndrix-card'
+    CARD_GLASS = 'p-6 rounded-none shadow-lg border border-slate-200 dark:border-zinc-800 lyndrix-glass-card'
+    CARD_HIGHLIGHT = 'p-6 rounded-none border-2 border-primary bg-indigo-50/50 dark:bg-indigo-900/20'
     MODAL_CONTAINER = '!bg-slate-50 dark:!bg-zinc-950 border border-slate-200 dark:border-zinc-800 shadow-2xl rounded-2xl'
 
     # ----------------------------------------------------

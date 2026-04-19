@@ -27,6 +27,8 @@ class PluginService:
         self._tag_cache = {}
         self._tag_cache_timestamp = {}
         self._cache_ttl = 900  # 15 Minuten Cache-Dauer
+        self._repo_cache = {}
+        self._repo_cache_timestamp = {}
 
     def _extract_repo_info(self, github_url: str):
         parts = github_url.rstrip("/").split("/")
@@ -36,6 +38,95 @@ class PluginService:
                 repo = repo[:-4]
             return parts[-2], repo
         raise ValueError("Invalid GitHub URL format")
+
+    def _normalize_repo_name(self, repo_name: str) -> str:
+        return repo_name.replace("-", "_")
+
+    def _repo_aliases(self, repo_name: str):
+        normalized = self._normalize_repo_name(repo_name)
+        aliases = {normalized}
+        if normalized.startswith("lyndrix_"):
+            aliases.add(normalized[len("lyndrix_"):])
+        return aliases
+
+    def _read_marketplace_urls(self):
+        list_file = Path(__file__).parents[4] / "assets" / "plugin-list.txt"
+        if not list_file.exists():
+            return []
+        with open(list_file, "r", encoding="utf-8") as handle:
+            return [line.strip() for line in handle.readlines() if line.strip()]
+
+    def get_marketplace_source_map(self):
+        repo_map = {}
+        for url in self._read_marketplace_urls():
+            try:
+                _, repo = self._extract_repo_info(url)
+                for alias in self._repo_aliases(repo):
+                    repo_map[alias] = url
+            except ValueError:
+                continue
+        return repo_map
+
+    def _fallback_marketplace_entry(self, url: str):
+        try:
+            user, repo = self._extract_repo_info(url)
+        except ValueError:
+            user, repo = "Unknown", url.rstrip("/").split("/")[-1]
+
+        return {
+            "name": repo.replace("-", " ").title(),
+            "description": "Marketplace-Metadaten werden geladen oder sind derzeit nicht verfugbar.",
+            "stars": 0,
+            "url": url,
+            "clone_url": url,
+            "author": user,
+            "repo_safe": self._normalize_repo_name(repo),
+            "repo_aliases": sorted(self._repo_aliases(repo)),
+            "tags": ["latest"],
+            "metadata_source": "fallback",
+        }
+
+    async def _fetch_repo_metadata(self, client: httpx.AsyncClient, url: str, semaphore: asyncio.Semaphore):
+        fallback = self._fallback_marketplace_entry(url)
+        repo_safe = fallback["repo_safe"]
+        cache_age = time.time() - self._repo_cache_timestamp.get(repo_safe, 0)
+        if repo_safe in self._repo_cache and cache_age < self._cache_ttl:
+            return dict(self._repo_cache[repo_safe])
+
+        try:
+            user, repo = self._extract_repo_info(url)
+            api_url = f"{self.github_api_base}/{user}/{repo}"
+            async with semaphore:
+                resp = await client.get(api_url, timeout=10.0)
+
+            if resp.status_code == 200:
+                data = resp.json()
+                result = {
+                    "name": data.get("name") or fallback["name"],
+                    "description": data.get("description") or "Keine Beschreibung verfugbar.",
+                    "stars": data.get("stargazers_count", 0),
+                    "url": data.get("html_url") or url,
+                    "clone_url": url,
+                    "author": data.get("owner", {}).get("login", user),
+                    "repo_safe": repo_safe,
+                    "repo_aliases": sorted(self._repo_aliases(repo)),
+                    "tags": ["latest"],
+                    "metadata_source": "github",
+                }
+                self._repo_cache[repo_safe] = result
+                self._repo_cache_timestamp[repo_safe] = time.time()
+                return dict(result)
+
+            if resp.status_code == 403:
+                log.warning(f"MARKETPLACE: Rate limit hit for {repo}. Using fallback data.")
+            else:
+                log.warning(f"MARKETPLACE: Failed to fetch info for {url}: HTTP {resp.status_code}")
+        except Exception as e:
+            log.warning(f"MARKETPLACE: Failed to fetch info for {url}: {e}")
+
+        self._repo_cache[repo_safe] = fallback
+        self._repo_cache_timestamp[repo_safe] = time.time()
+        return dict(fallback)
 
     def _get_headers(self):
         """Erstellt die Header für GitHub API Anfragen."""
@@ -258,50 +349,23 @@ class PluginService:
         # Cache-Check: Wenn Daten noch frisch sind, API-Anrufe sparen
         if not force_refresh and self._marketplace_cache and (time.time() - self._cache_timestamp < self._cache_ttl):
             log.debug("MARKETPLACE: Loading from cache")
-            return self._marketplace_cache
+            return [dict(plugin) for plugin in self._marketplace_cache]
 
-        list_file = Path(__file__).parents[4] / "assets" / "plugin-list.txt"
-        if not list_file.exists():
+        urls = self._read_marketplace_urls()
+        if not urls:
             return []
 
-        plugins = []
         async with httpx.AsyncClient(headers=self._get_headers(), follow_redirects=True) as client:
-            with open(list_file, "r") as f:
-                urls = [line.strip() for line in f.readlines() if line.strip()]
-            
-            for url in urls:
-                try:
-                    user, repo = self._extract_repo_info(url)
-                    api_url = f"{self.github_api_base}/{user}/{repo}"
-                    resp = await client.get(api_url)
-                    if resp.status_code == 200:
-                        data = resp.json()
-                        plugins.append({
-                            "name": data.get("name"),
-                            "description": data.get("description", "Keine Beschreibung verfügbar."),
-                            "stars": data.get("stargazers_count", 0),
-                            "url": data.get("html_url"),
-                            "clone_url": url, # Für den Installer
-                            "author": data.get("owner", {}).get("login", "Unknown")
-                        })
-                    elif resp.status_code == 403:
-                        log.warning(f"MARKETPLACE: Rate limit hit for {repo}. Using fallback data.")
-                        plugins.append({
-                            "name": repo,
-                            "description": "Metadaten konnten nicht geladen werden (GitHub Rate Limit).",
-                            "stars": "N/A",
-                            "url": url,
-                            "clone_url": url,
-                            "author": user
-                        })
-                except Exception as e:
-                    log.warning(f"MARKETPLACE: Failed to fetch info for {url}: {e}")
+            semaphore = asyncio.Semaphore(4)
+            plugins = await asyncio.gather(
+                *(self._fetch_repo_metadata(client, url, semaphore) for url in urls)
+            )
         
         # Cache aktualisieren
         if plugins:
             self._marketplace_cache = plugins
             self._cache_timestamp = time.time()
             
-        return plugins
+        return [dict(plugin) for plugin in plugins]
 
 plugin_service = PluginService()

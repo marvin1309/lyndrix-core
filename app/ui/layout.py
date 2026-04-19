@@ -75,9 +75,11 @@ def open_plugin_settings_modal(manifest_id: str):
         ui.notify(f'{manifest.name} hat keine konfigurierbaren Einstellungen.', type='info')
         return
 
-    with ui.dialog() as settings_dialog, ui.card().classes(f'w-full max-w-xl p-0 overflow-hidden {UIStyles.CARD_GLASS}'):
+    with ui.dialog() as settings_dialog, ui.card().classes(
+        f'w-[calc(100vw-40px)] h-[calc(100vh-40px)] max-w-none max-h-none p-[20px] flex flex-col {UIStyles.MODAL_CONTAINER}'
+    ):
         
-        with ui.row().classes('w-full justify-between items-center p-4 border-b border-slate-200 dark:border-zinc-800 bg-slate-50/50 dark:bg-zinc-900/50'):
+        with ui.row().classes('w-full justify-between items-center mb-4 shrink-0'):
             with ui.row().classes('items-center gap-3'):
                 ui.icon(manifest.icon, size='24px').classes('text-primary')
                 with ui.column().classes('gap-0'):
@@ -86,7 +88,7 @@ def open_plugin_settings_modal(manifest_id: str):
             
             ui.button(icon='close', on_click=settings_dialog.close).props('flat round dense').classes('text-slate-500 hover:text-slate-800 dark:hover:text-white transition-colors')
         
-        with ui.scroll_area().classes('w-full max-h-[70vh] p-6'):
+        with ui.scroll_area().classes('w-full flex-grow pr-4'):
             try:
                 mod.render_settings_ui(ctx)
             except Exception as e:
@@ -130,10 +132,10 @@ def main_layout(page_title: str):
                     break
 
             # --- HEADER ---
-            with ui.header(elevated=False).classes(UIStyles.HEADER):
-                with ui.row().classes('items-center gap-3 w-full'):
-                    ui.button(icon='menu').props('flat round text-color=current').on('click', lambda: left_drawer.toggle())
-                    ui.label(settings.APP_TITLE).classes('text-lg font-black tracking-tighter text-primary')
+            with ui.header(elevated=False).classes(UIStyles.HEADER).props('dense'):
+                with ui.row().classes('items-center gap-2 w-full'):
+                    ui.button(icon='menu').props('flat round dense text-color=current').on('click', lambda: left_drawer.toggle())
+                    ui.label(settings.APP_TITLE).classes('text-xs font-bold tracking-widest uppercase text-primary')
                     ui.space() 
                     
                     with ui.row().classes('items-center gap-2'):
@@ -202,7 +204,7 @@ def main_layout(page_title: str):
                                     ui.label(item['label']).classes('text-sm ml-3 font-medium')
 
             # --- CONTENT ---
-            with ui.column().classes('p-6 md:p-12 w-full max-w-7xl mx-auto flex-grow'):
+            with ui.column().classes('p-4 md:p-8 w-full max-w-7xl mx-auto flex-grow'):
                 if inspect.iscoroutinefunction(fn):
                     return await fn(*args, **kwargs)
                 else:
