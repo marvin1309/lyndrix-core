@@ -1,9 +1,11 @@
 {
 	"folders": [
 		{
+			"name": "lyndrix-core",
 			"path": "."
 		},
 		{
+			"name": "lyndrix-iac-orchestrator",
 			"path": "../lyndrix-iac-orchestrator"
 		},
 		{
@@ -15,12 +17,15 @@
 			"path": "../lyndrix-discord-notifier"
 		},
 		{
+			"name": "ansible-ci-image",
 			"path": "../../iac-environment/ansible-ci-image"
 		},
 		{
+			"name": "iac-ansible-automation",
 			"path": "../../iac-environment/iac-ansible-automation"
 		},
 		{
+			"name": "aac-template-engine",
 			"path": "../../iac-environment/aac-template-engine"
 		},
 		{
