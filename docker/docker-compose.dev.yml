@@ -15,6 +15,7 @@ services:
       - ../../lyndrix-discord-notifier:/app/plugins/discord_notifier
       - ../../lyndrix-git-manager:/app/plugins/git_manager
       - ../../lyndrix-meeting-bingo:/app/plugins/meeting_bingo
+      - ../../lyndrix-state-monitoring:/app/plugins/state_monitoring
       - /var/run/docker.sock:/var/run/docker.sock
     env_file:
       - .env.dev
@@ -26,8 +27,6 @@ services:
         condition: service_healthy
       vault:
         condition: service_started
-
-
   db:
     image: mariadb:10.11
     container_name: lyndrix-db-dev

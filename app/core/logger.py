@@ -88,7 +88,7 @@ def setup_logging():
     root_logger.addHandler(memory_handler)
 
     # Externe Logger dämpfen
-    silent_loggers = ["uvicorn", "uvicorn.access", "sqlalchemy.engine", "hvac", "urllib3", "nicegui"]
+    silent_loggers = ["uvicorn", "uvicorn.access", "sqlalchemy.engine", "hvac", "urllib3", "nicegui", "httpx"]
     for name in silent_loggers:
         l = logging.getLogger(name)
         l.setLevel(logging.WARNING if not IS_DEBUG else logging.DEBUG)

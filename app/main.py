@@ -25,6 +25,13 @@ setup_logging()
 app = FastAPI()
 log = get_logger("Core:Main")
 
+
+def _safe_is_authenticated() -> bool:
+    try:
+        return bool(nicegui_app.storage.user.get('authenticated', False))
+    except AssertionError:
+        return False
+
 # ==========================================
 # HTTP MIDDLEWARE (Interceptor)
 # ==========================================
@@ -71,7 +78,7 @@ def entry_point():
         return
 
     # 3. System is ready
-    if nicegui_app.storage.user.get('authenticated', False):
+    if _safe_is_authenticated():
         ui.navigate.to('/dashboard')
     else:
         ui.navigate.to('/login')

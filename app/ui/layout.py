@@ -14,6 +14,20 @@ from core.components.notifications.notification_widget import render_notificatio
 
 log = get_logger("UI:Layout")
 
+
+def _safe_user_storage() -> dict | None:
+    try:
+        return app.storage.user
+    except AssertionError:
+        return None
+
+
+def _safe_user_value(key: str, default=None):
+    storage = _safe_user_storage()
+    if storage is None:
+        return default
+    return storage.get(key, default)
+
 # ==========================================
 # ZENTRALE SETTINGS POPUP LOGIK
 # ==========================================
@@ -27,7 +41,9 @@ def trigger_reload():
     ui.run_javascript('window.location.reload();')
 
 def logout():
-    app.storage.user.clear()
+    storage = _safe_user_storage()
+    if storage is not None:
+        storage.clear()
     ui.navigate.to('/login')
 
 def get_nav_items():
@@ -102,7 +118,7 @@ def main_layout(page_title: str):
         @wraps(fn)
         async def wrapper(*args, **kwargs):
             
-            theme_pref = app.storage.user.get('theme_pref', 'dark')
+            theme_pref = _safe_user_value('theme_pref', 'dark')
             apply_theme(theme_pref) 
             
             is_dark = theme_pref == 'dark'
@@ -112,7 +128,9 @@ def main_layout(page_title: str):
 
             def on_theme_switch(e):
                 mode = 'dark' if e.value else 'light'
-                app.storage.user['theme_pref'] = mode
+                storage = _safe_user_storage()
+                if storage is not None:
+                    storage['theme_pref'] = mode
                 if e.value: dark.enable()
                 else: dark.disable()
                 ui.run_javascript(f"document.documentElement.classList.toggle('dark', {'true' if e.value else 'false'});")
@@ -163,7 +181,7 @@ def main_layout(page_title: str):
                                 with ui.row().classes('w-full items-center p-4 border-b border-zinc-800 bg-zinc-900 shrink-0 gap-3'):
                                     ui.icon('admin_panel_settings', size='28px').classes('text-indigo-400')
                                     with ui.column().classes('gap-0'):
-                                        username = app.storage.user.get('username', 'Administrator')
+                                        username = _safe_user_value('username', 'Administrator')
                                         ui.label(username).classes('text-sm font-bold text-slate-200 tracking-wide capitalize')
                                         ui.label("System Owner").classes('text-[10px] text-slate-500 uppercase tracking-widest')
                                 

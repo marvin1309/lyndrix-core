@@ -14,6 +14,29 @@ class GlobalEventBus:
         self._noise_topics = ["system:metrics_update"]
         # Topics with sensitive payloads (never log data)
         self._sensitive_topics = ["vault:unseal_requested", "vault:init_requested"]
+        # Topics with very large payloads should be summarized to keep logs usable.
+        self._summarized_topics = {"monitoring:inventory_sync", "monitoring:state_changed"}
+
+    def _summarize_payload(self, topic: str, payload: dict) -> str:
+        if topic == "monitoring:inventory_sync":
+            return (
+                "{"
+                f"'owner_source': {payload.get('owner_source')!r}, "
+                f"'source_revision': {payload.get('source_revision')!r}, "
+                f"'hosts': {len(payload.get('hosts') or [])}, "
+                f"'services': {len(payload.get('services') or [])}"
+                "}"
+            )
+        if topic == "monitoring:state_changed":
+            transition = f"{payload.get('previous_state')}->{payload.get('new_state')}"
+            return (
+                "{"
+                f"'monitor_id': {payload.get('monitor_id')!r}, "
+                f"'transition': {transition!r}, "
+                f"'error_message': {payload.get('error_message')!r}"
+                "}"
+            )
+        return str(payload)
 
     def subscribe(self, topic: str):
         """Decorator: @bus.subscribe('topic') registers a callback."""
@@ -34,6 +57,8 @@ class GlobalEventBus:
             self.log.debug(f"METRICS: {topic}")
         elif topic in self._sensitive_topics:
             self.log.info(f"EVENT: {topic} | Data: [REDACTED]")
+        elif topic in self._summarized_topics:
+            self.log.info(f"EVENT: {topic} | Data: {self._summarize_payload(topic, payload)}")
         else:
             self.log.info(f"EVENT: {topic} | Data: {payload}")
 
