@@ -15,6 +15,9 @@ from core.components.notifications.notification_widget import render_notificatio
 log = get_logger("UI:Layout")
 
 
+_ui_refresh_subscription_registered = False
+
+
 def _safe_user_storage() -> dict | None:
     try:
         return app.storage.user
@@ -39,6 +42,22 @@ def trigger_reload():
     """Triggers a client-side page reload."""
     ui.notify('Refreshing UI...', type='info')
     ui.run_javascript('window.location.reload();')
+
+
+def _register_ui_refresh_subscription():
+    global _ui_refresh_subscription_registered
+    if _ui_refresh_subscription_registered:
+        return
+
+    @bus.subscribe("ui:needs_refresh")
+    def on_ui_refresh(payload):
+        reason = (payload or {}).get('reason', 'unknown reason')
+        # NiceGUI slot-bound APIs cannot be called safely from this global bus callback.
+        # Browsers reconnect or users can refresh manually; the critical part is avoiding
+        # repeated background-task crashes during plugin lifecycle changes.
+        log.info(f"UI refresh requested: {reason}")
+
+    _ui_refresh_subscription_registered = True
 
 def logout():
     storage = _safe_user_storage()
@@ -117,6 +136,7 @@ def main_layout(page_title: str):
     def decorator(fn):
         @wraps(fn)
         async def wrapper(*args, **kwargs):
+            _register_ui_refresh_subscription()
             
             theme_pref = _safe_user_value('theme_pref', 'dark')
             apply_theme(theme_pref) 
@@ -134,10 +154,6 @@ def main_layout(page_title: str):
                 if e.value: dark.enable()
                 else: dark.disable()
                 ui.run_javascript(f"document.documentElement.classList.toggle('dark', {'true' if e.value else 'false'});")
-
-            @bus.subscribe("ui:needs_refresh")
-            def on_ui_refresh(payload):
-                trigger_reload()
 
             attach_maintenance_overlay()
             core_items, plugin_items = get_nav_items()

@@ -411,12 +411,15 @@ class ModuleManager:
         """Removes a module's UI components without unloading the code."""
         if module_id not in self.registry: return
         from main import app as fastapi_app
-        from nicegui import ui
         manifest = self.registry[module_id]["manifest"]
         if manifest.ui_route:
             log.info(f"TEARDOWN: Removing UI route '{manifest.ui_route}' for '{module_id}'")
             try:
-                fastapi_app.routes = [route for route in fastapi_app.routes if route.path != manifest.ui_route]
+                fastapi_app.router.routes[:] = [
+                    route for route in fastapi_app.router.routes
+                    if getattr(route, "path", None) != manifest.ui_route
+                ]
+                fastapi_app.openapi_schema = None
             except Exception as e:
                 log.error(f"TEARDOWN_ERROR: Failed to remove UI for '{module_id}': {e}")
 

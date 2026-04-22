@@ -50,6 +50,23 @@ def _status_badge(status: str):
     return mapping.get(status, ('Unknown', 'bg-zinc-700/40 text-zinc-200 border border-zinc-600/60'))
 
 
+def _is_deleted_slot_error(exc: RuntimeError) -> bool:
+    message = str(exc)
+    return (
+        'slot belongs to has been deleted' in message
+        or 'parent element this slot belongs to has been deleted' in message
+    )
+
+
+def _safe_notify(message: str, notify_type: str = 'info'):
+    try:
+        ui.notify(message, type=notify_type)
+    except RuntimeError as exc:
+        if not _is_deleted_slot_error(exc):
+            raise
+        log.info(f"Plugins UI: skipped notify after client teardown: {message}")
+
+
 def render_plugins_page():
     """Renders the full plugin management page."""
 
@@ -104,15 +121,20 @@ def render_plugins_page():
         manifest = record['manifest']
         folder_name = record['folder_name']
         if manifest.type != 'PLUGIN' or not folder_name:
-            ui.notify('Core-Module konnen nicht deinstalliert werden.', type='warning')
+            _safe_notify('Core-Module konnen nicht deinstalliert werden.', 'warning')
             return
 
         if await plugin_service.uninstall_plugin(manifest.id, folder_name):
-            ui.notify(f'{manifest.name} wurde deinstalliert.', type='positive')
-            await load_installed()
-            await load_shop()
+            try:
+                await load_installed()
+                await load_shop()
+            except RuntimeError as exc:
+                if not _is_deleted_slot_error(exc):
+                    raise
+                log.info(f"Plugins UI: skipped uninstall refresh for {manifest.name} after client teardown")
+            _safe_notify(f'{manifest.name} wurde deinstalliert.', 'positive')
         else:
-            ui.notify(f'Deinstallation von {manifest.name} fehlgeschlagen.', type='negative')
+            _safe_notify(f'Deinstallation von {manifest.name} fehlgeschlagen.', 'negative')
 
     def open_logs(manifest):
         with ui.dialog() as log_dialog, ui.card().classes(f'w-full max-w-4xl h-[80vh] {UIStyles.MODAL_CONTAINER}'):
@@ -147,9 +169,9 @@ def render_plugins_page():
                     def toggle_plugin_inner(event):
                         module_manager.toggle_module(manifest.id, event.value)
                         if event.value:
-                            ui.notify(f'{manifest.name} aktiviert.', type='positive')
+                            _safe_notify(f'{manifest.name} aktiviert.', 'positive')
                         else:
-                            ui.notify(f'{manifest.name} deaktiviert.', type='warning')
+                            _safe_notify(f'{manifest.name} deaktiviert.', 'warning')
 
                     ui.switch('Plugin Aktiviert', value=active, on_change=toggle_plugin_inner).props('color=emerald').classes('w-full')
 
@@ -170,14 +192,19 @@ def render_plugins_page():
                     if manifest.type == 'PLUGIN':
                         async def reload_plugin_inner():
                             try:
-                                ui.notify(f'Reloade {manifest.name}...', type='ongoing')
+                                _safe_notify(f'Reloade {manifest.name}...', 'ongoing')
                                 await module_manager.reload_module(manifest.id)
-                                await load_installed()
-                                await load_shop()
-                                ui.notify('Reload abgeschlossen.', type='positive')
-                                settings_dialog.close()
+                                try:
+                                    await load_installed()
+                                    await load_shop()
+                                    _safe_notify('Reload abgeschlossen.', 'positive')
+                                    settings_dialog.close()
+                                except RuntimeError as exc:
+                                    if not _is_deleted_slot_error(exc):
+                                        raise
+                                    log.info(f"Plugins UI: skipped reload refresh for {manifest.name} after client teardown")
                             except Exception as exc:
-                                ui.notify(f'Fehler beim Reload: {exc}', type='negative')
+                                _safe_notify(f'Fehler beim Reload: {exc}', 'negative')
 
                         async def delete_plugin_inner():
                             await uninstall_record(record)
@@ -189,10 +216,16 @@ def render_plugins_page():
         settings_dialog.open()
 
     async def check_all_updates():
-        ui.notify('Prufe Marketplace-Daten neu...', type='ongoing')
-        await load_installed()
-        await load_shop(force_refresh=True)
-        ui.notify('Update-Prufung abgeschlossen.', type='positive')
+        _safe_notify('Prufe Marketplace-Daten neu...', 'ongoing')
+        try:
+            await load_installed()
+            await load_shop(force_refresh=True)
+        except RuntimeError as exc:
+            if not _is_deleted_slot_error(exc):
+                raise
+            log.info('Plugins UI: skipped marketplace refresh after client teardown')
+            return
+        _safe_notify('Update-Prufung abgeschlossen.', 'positive')
 
     with ui.column().classes('w-full max-w-7xl gap-6 mx-auto'):
         with ui.row().classes('w-full justify-between items-center'):
@@ -259,13 +292,18 @@ def render_plugins_page():
                                                 ).props('flat round size=sm color=slate').tooltip('Verfugbare Versionen laden')
 
                                                 async def run_update(select=version_select, url=record['source_url'], name=manifest.name):
-                                                    ui.notify(f'Installiere {select.value} fur {name}...', type='ongoing')
+                                                    _safe_notify(f'Installiere {select.value} fur {name}...', 'ongoing')
                                                     if await plugin_service.install_plugin(url, version=select.value, upgrade=True):
-                                                        await load_installed()
-                                                        await load_shop()
-                                                        ui.notify(f'{name} aktualisiert.', type='positive')
+                                                        try:
+                                                            await load_installed()
+                                                            await load_shop()
+                                                        except RuntimeError as exc:
+                                                            if not _is_deleted_slot_error(exc):
+                                                                raise
+                                                            log.info(f"Plugins UI: skipped update refresh for {name} after client teardown")
+                                                        _safe_notify(f'{name} aktualisiert.', 'positive')
                                                     else:
-                                                        ui.notify(f'Update von {name} fehlgeschlagen.', type='negative')
+                                                        _safe_notify(f'Update von {name} fehlgeschlagen.', 'negative')
 
                                                 ui.button(icon='cloud_download', on_click=run_update).props('flat round size=sm color=warning').tooltip('Ausgewahlte Version installieren')
 
@@ -358,25 +396,35 @@ def render_plugins_page():
                                         with ui.row().classes('items-center gap-2 ml-auto'):
                                             if installed_record:
                                                 async def upgrade_plugin(select=version_select, url=plugin['clone_url'], name=plugin['name']):
-                                                    ui.notify(f'Update {name} auf {select.value}...', type='ongoing')
+                                                    _safe_notify(f'Update {name} auf {select.value}...', 'ongoing')
                                                     if await plugin_service.install_plugin(url, version=select.value, upgrade=True):
-                                                        await load_installed()
-                                                        await load_shop()
-                                                        ui.notify(f'{name} aktualisiert.', type='positive')
+                                                        try:
+                                                            await load_installed()
+                                                            await load_shop()
+                                                        except RuntimeError as exc:
+                                                            if not _is_deleted_slot_error(exc):
+                                                                raise
+                                                            log.info(f"Plugins UI: skipped marketplace update refresh for {name} after client teardown")
+                                                        _safe_notify(f'{name} aktualisiert.', 'positive')
                                                     else:
-                                                        ui.notify(f'Update von {name} fehlgeschlagen.', type='negative')
+                                                        _safe_notify(f'Update von {name} fehlgeschlagen.', 'negative')
 
                                                 ui.button(icon='sync', on_click=upgrade_plugin).props('unelevated size=sm color=warning rounded').tooltip('Version andern')
                                                 ui.button(icon='delete', on_click=lambda record=installed_record: uninstall_record(record)).props('unelevated size=sm color=red rounded').tooltip('Schnell deinstallieren')
                                             else:
                                                 async def install_plugin_handler(select=version_select, url=plugin['clone_url'], name=plugin['name']):
-                                                    ui.notify(f'Installiere {name} ({select.value})...', type='ongoing')
+                                                    _safe_notify(f'Installiere {name} ({select.value})...', 'ongoing')
                                                     if await plugin_service.install_plugin(url, version=select.value):
-                                                        await load_installed()
-                                                        await load_shop()
-                                                        ui.notify(f'{name} installiert und aktiviert.', type='positive')
+                                                        try:
+                                                            await load_installed()
+                                                            await load_shop()
+                                                        except RuntimeError as exc:
+                                                            if not _is_deleted_slot_error(exc):
+                                                                raise
+                                                            log.info(f"Plugins UI: skipped install refresh for {name} after client teardown")
+                                                        _safe_notify(f'{name} installiert und aktiviert.', 'positive')
                                                     else:
-                                                        ui.notify(f'Installation von {name} fehlgeschlagen.', type='negative')
+                                                        _safe_notify(f'Installation von {name} fehlgeschlagen.', 'negative')
 
                                                 ui.button('Install', icon='download', on_click=install_plugin_handler).props('unelevated size=sm color=primary rounded')
 
