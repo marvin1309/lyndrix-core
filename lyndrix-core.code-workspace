@@ -26,6 +26,10 @@
 		{
 			"name": "lyndrix-meeting-bingo",
 			"path": "../lyndrix-meeting-bingo"
+		},
+		{
+			"name": "lyndrix-state-monitoring",
+			"path": "../lyndrix-state-monitoring"
 		}
 	],
 	"settings": {
